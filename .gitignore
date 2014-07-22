@@ -1,0 +1,6 @@
+.build
+libexec
+*sublime-*
+.ruby-version
+Vagrantfile
+rs_ingester
