@@ -1,0 +1,41 @@
+{
+	"ImportPath": "github.com/twitchscience/rs_ingester",
+	"GoVersion": "go1.2.1",
+	"Packages": [
+		"./..."
+	],
+	"Deps": [
+		{
+			"ImportPath": "github.com/cactus/go-statsd-client/statsd",
+			"Rev": "3999011ef0451eb805b0fa31f98cfb9261bd71be"
+		},
+		{
+			"ImportPath": "github.com/crowdmob/goamz/aws",
+			"Rev": "c5ba9ad45b6ac022326f0ff9762d6bac33ca8f88"
+		},
+		{
+			"ImportPath": "github.com/crowdmob/goamz/s3",
+			"Rev": "c5ba9ad45b6ac022326f0ff9762d6bac33ca8f88"
+		},
+		{
+			"ImportPath": "github.com/crowdmob/goamz/sqs",
+			"Rev": "c5ba9ad45b6ac022326f0ff9762d6bac33ca8f88"
+		},
+		{
+			"ImportPath": "github.com/twitchscience/aws_utils/environment",
+			"Rev": "905565bfb31c38d473a91f4fae4006b7c76eefe3"
+		},
+		{
+			"ImportPath": "github.com/twitchscience/aws_utils/listener",
+			"Rev": "905565bfb31c38d473a91f4fae4006b7c76eefe3"
+		},
+		{
+			"ImportPath": "github.com/twitchscience/scoop_protocol/msg_signer",
+			"Rev": "43e1abe4cb9e6da0b33fce97e6833e655f02b4d3"
+		},
+		{
+			"ImportPath": "github.com/twitchscience/scoop_protocol/scoop_protocol",
+			"Rev": "43e1abe4cb9e6da0b33fce97e6833e655f02b4d3"
+		}
+	]
+}
