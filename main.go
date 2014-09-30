@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -63,14 +64,19 @@ func (i *IngestHandler) Handle(msg *sqs.Message) error {
 	log.Printf("Sending RowCopy to scoop for %s\n", msg.MessageId)
 
 	resp, err := http.Post(copyURL(), "application/json", strings.NewReader(msg.Body))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
 
 	if err != nil {
 		return err
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("Post failed with status code: %s", resp.Status)
-		return errors.New(fmt.Sprintf("Post failed with status code: %s", resp.Status))
+		log.Printf("Post failed with status code: %s body: %q", resp.Status, string(body))
+		return errors.New(fmt.Sprintf("Post failed with status code: %s body: %q", resp.Status, string(body)))
 	}
 
 	log.Printf("Got res for %s as %v\n", msg.MessageId, err)
