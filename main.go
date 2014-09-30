@@ -32,7 +32,7 @@ var (
 	scoopHost              string
 	scoopScheme            string
 	keyRing                = keyring.New()
-	alreadyCheckedOutError = errors.New("TableName is checked out")
+	alreadyCheckedOutError = errors.New("")
 	env                    = environment.GetCloudEnv()
 )
 
@@ -49,8 +49,6 @@ type IngestHandler struct {
 func (i *IngestHandler) Handle(msg *sqs.Message) error {
 	start := time.Now()
 
-	log.Printf("got %s;%s\n", msg.Body, msg.MessageId)
-
 	req, err := i.Auth.GetRowCopyRequest(strings.NewReader(msg.Body))
 	if err != nil {
 		return err
@@ -60,8 +58,6 @@ func (i *IngestHandler) Handle(msg *sqs.Message) error {
 		return alreadyCheckedOutError
 	}
 	defer keyRing.Return(req.TableName)
-
-	log.Printf("Sending RowCopy to scoop for %s\n", msg.MessageId)
 
 	resp, err := http.Post(copyURL(), "application/json", strings.NewReader(msg.Body))
 	if err != nil {
@@ -75,11 +71,8 @@ func (i *IngestHandler) Handle(msg *sqs.Message) error {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("Post failed with status code: %s body: %q", resp.Status, string(body))
 		return errors.New(fmt.Sprintf("Post failed with status code: %s body: %q", resp.Status, string(body)))
 	}
-
-	log.Printf("Got res for %s as %v\n", msg.MessageId, err)
 
 	i.Statter.Timing(req.TableName, int64(time.Now().Sub(start)), 1)
 	return nil
