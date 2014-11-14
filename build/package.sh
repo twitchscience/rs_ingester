@@ -7,6 +7,7 @@ export DEPLOYDIR="${PKGDIR}/deploy"
 export SUPPORTDIR="${PKGDIR}/support"
 
 mkdir -p ${DEPLOYDIR}/{bin,data}
-cp -R ${SRCDIR}/rs_ingester ${DEPLOYDIR}
+cp ${SRCDIR}/rs_ingester ${DEPLOYDIR}
+cp ${SRCDIR}/dbstorer/dbstorer ${DEPLOYDIR}
 cp ${SRCDIR}/build/scripts/* ${DEPLOYDIR}/bin
 cp -R ${SRCDIR}/build/config ${DEPLOYDIR}

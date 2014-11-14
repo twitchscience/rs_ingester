@@ -27,7 +27,7 @@ func (s *S) TestCreateQueue(c *check.C) {
 	resp, err := s.sqs.CreateQueue("testQueue")
 	req := testServer.WaitRequest()
 
-	c.Assert(req.Method, check.Equals, "GET")
+	c.Assert(req.Method, check.Equals, "POST")
 	c.Assert(req.URL.Path, check.Equals, "/")
 	c.Assert(req.Header["Date"], check.Not(check.Equals), "")
 	fmt.Printf("%+v\n", req)
@@ -55,12 +55,15 @@ func (s *S) TestCreateQueueWithAttributes(c *check.C) {
 
 	s.sqs.CreateQueueWithAttributes("testQueue", map[string]string{
 		"ReceiveMessageWaitTimeSeconds": "20",
+		"MessageRetentionPeriod":        "60",
 	})
 	req := testServer.WaitRequest()
 
 	// TestCreateQueue() tests the core functionality, just check the timeout in this test
 	c.Assert(req.Form["Attribute.1.Name"], check.DeepEquals, []string{"ReceiveMessageWaitTimeSeconds"})
 	c.Assert(req.Form["Attribute.1.Value"], check.DeepEquals, []string{"20"})
+	c.Assert(req.Form["Attribute.2.Name"], check.DeepEquals, []string{"MessageRetentionPeriod"})
+	c.Assert(req.Form["Attribute.2.Value"], check.DeepEquals, []string{"60"})
 }
 
 func (s *S) TestListQueues(c *check.C) {
@@ -69,7 +72,7 @@ func (s *S) TestListQueues(c *check.C) {
 	resp, err := s.sqs.ListQueues("")
 	req := testServer.WaitRequest()
 
-	c.Assert(req.Method, check.Equals, "GET")
+	c.Assert(req.Method, check.Equals, "POST")
 	c.Assert(req.URL.Path, check.Equals, "/")
 	c.Assert(req.Header["Date"], check.Not(check.Equals), "")
 
@@ -86,7 +89,7 @@ func (s *S) TestDeleteQueue(c *check.C) {
 	resp, err := q.Delete()
 	req := testServer.WaitRequest()
 
-	c.Assert(req.Method, check.Equals, "GET")
+	c.Assert(req.Method, check.Equals, "POST")
 	c.Assert(req.URL.Path, check.Equals, "/123456789012/testQueue/")
 	c.Assert(req.Header["Date"], check.Not(check.Equals), "")
 
@@ -101,7 +104,7 @@ func (s *S) TestSendMessage(c *check.C) {
 	resp, err := q.SendMessage("This is a test message")
 	req := testServer.WaitRequest()
 
-	c.Assert(req.Method, check.Equals, "GET")
+	c.Assert(req.Method, check.Equals, "POST")
 	c.Assert(req.URL.Path, check.Equals, "/123456789012/testQueue/")
 	c.Assert(req.Header["Date"], check.Not(check.Equals), "")
 
@@ -110,7 +113,41 @@ func (s *S) TestSendMessage(c *check.C) {
 	h.Write([]byte(msg))
 	c.Assert(resp.MD5, check.Equals, fmt.Sprintf("%x", h.Sum(nil)))
 	c.Assert(resp.Id, check.Equals, "5fea7756-0ea4-451a-a703-a558b933e274")
+	c.Assert(resp.AttributeMD5, check.Equals, "") // Since we sent no message attributes
 	c.Assert(err, check.IsNil)
+}
+
+func (s *S) TestSendMessageWithMessageAttributes(c *check.C) {
+	testServer.PrepareResponse(200, nil, TestSendMessageWithAttributesXmlOK)
+
+	attributes := map[string]string{"red": "fish", "blue": "fish"}
+
+	q := &Queue{s.sqs, testServer.URL + "/123456789012/testQueue/"}
+	resp, err := q.SendMessageWithAttributes("This is a test message", attributes)
+	req := testServer.WaitRequest()
+
+	c.Assert(req.Method, check.Equals, "POST")
+	c.Assert(req.URL.Path, check.Equals, "/123456789012/testQueue/")
+	c.Assert(req.Header["Date"], check.Not(check.Equals), "")
+
+	msg := "This is a test message"
+	var h hash.Hash = md5.New()
+	h.Write([]byte(msg))
+	c.Assert(resp.MD5, check.Equals, fmt.Sprintf("%x", h.Sum(nil)))
+	c.Assert(resp.Id, check.Equals, "5fea7756-0ea4-451a-a703-a558b933e274")
+	c.Assert(resp.AttributeMD5, check.Equals, fmt.Sprintf("%x", calculateAttributeMD5(attributes)))
+	c.Assert(err, check.IsNil)
+}
+
+func (s *S) TestSendMessageWithMessageAttributesInvalidAttributeMD5(c *check.C) {
+	testServer.PrepareResponse(200, nil, TestSendMessageXmlInvalidAttributeMD5)
+
+	attributes := map[string]string{"red": "fish", "blue": "fish"}
+
+	q := &Queue{s.sqs, testServer.URL + "/123456789012/testQueue/"}
+	_, err := q.SendMessageWithAttributes("This is a test message", attributes)
+
+	c.Assert(err.Error(), check.Equals, "Attribute MD5 mismatch, expecting `fe84d6b9875bc7a88b28014389b64ed0`, found `incorrect`")
 }
 
 func (s *S) TestSendMessageBatch(c *check.C) {
@@ -122,7 +159,7 @@ func (s *S) TestSendMessageBatch(c *check.C) {
 	resp, err := q.SendMessageBatchString(msgList)
 	req := testServer.WaitRequest()
 
-	c.Assert(req.Method, check.Equals, "GET")
+	c.Assert(req.Method, check.Equals, "POST")
 	c.Assert(req.URL.Path, check.Equals, "/123456789012/testQueue/")
 	c.Assert(req.Header["Date"], check.Not(check.Equals), "")
 
@@ -147,7 +184,7 @@ func (s *S) TestDeleteMessageBatch(c *check.C) {
 	c.Assert(err, check.IsNil)
 	req := testServer.WaitRequest()
 
-	c.Assert(req.Method, check.Equals, "GET")
+	c.Assert(req.Method, check.Equals, "POST")
 	c.Assert(req.URL.Path, check.Equals, "/123456789012/testQueue/")
 	c.Assert(req.Header["Date"], check.Not(check.Equals), "")
 
@@ -163,7 +200,7 @@ func (s *S) TestReceiveMessage(c *check.C) {
 	resp, err := q.ReceiveMessage(5)
 	req := testServer.WaitRequest()
 
-	c.Assert(req.Method, check.Equals, "GET")
+	c.Assert(req.Method, check.Equals, "POST")
 	c.Assert(req.URL.Path, check.Equals, "/123456789012/testQueue/")
 	c.Assert(req.Header["Date"], check.Not(check.Equals), "")
 
@@ -174,6 +211,7 @@ func (s *S) TestReceiveMessage(c *check.C) {
 	c.Assert(resp.Messages[0].Body, check.Equals, "This is a test message")
 
 	c.Assert(len(resp.Messages[0].Attribute), check.Not(check.Equals), 0)
+	c.Assert(len(resp.Messages[0].MessageAttribute), check.Equals, 0)
 
 	expectedAttributeResults := []struct {
 		Name  string
@@ -193,6 +231,58 @@ func (s *S) TestReceiveMessage(c *check.C) {
 	c.Assert(err, check.IsNil)
 }
 
+func (s *S) TestReceiveMessageWithAttributes(c *check.C) {
+	testServer.PrepareResponse(200, nil, TestReceiveMessageWithAttributesXmlOK)
+
+	q := &Queue{s.sqs, testServer.URL + "/123456789012/testQueue/"}
+	resp, err := q.ReceiveMessage(5)
+	req := testServer.WaitRequest()
+
+	c.Assert(req.Method, check.Equals, "POST")
+	c.Assert(req.URL.Path, check.Equals, "/123456789012/testQueue/")
+	c.Assert(req.Header["Date"], check.Not(check.Equals), "")
+
+	c.Assert(len(resp.Messages), check.Not(check.Equals), 0)
+	c.Assert(resp.Messages[0].MessageId, check.Equals, "5fea7756-0ea4-451a-a703-a558b933e274")
+	c.Assert(resp.Messages[0].MD5OfBody, check.Equals, "fafb00f5732ab283681e124bf8747ed1")
+	c.Assert(resp.Messages[0].ReceiptHandle, check.Equals, "MbZj6wDWli+JvwwJaBV+3dcjk2YW2vA3+STFFljTM8tJJg6HRG6PYSasuWXPJB+CwLj1FjgXUv1uSj1gUPAWV66FU/WeR4mq2OKpEGYWbnLmpRCJVAyeMjeU5ZBdtcQ+QEauMZc8ZRv37sIW2iJKq3M9MFx1YvV11A2x/KSbkJ0=")
+	c.Assert(resp.Messages[0].Body, check.Equals, "This is a test message")
+
+	c.Assert(len(resp.Messages[0].Attribute), check.Not(check.Equals), 0)
+	c.Assert(len(resp.Messages[0].MessageAttribute), check.Not(check.Equals), 0)
+
+	expectedAttributeResults := []struct {
+		Name  string
+		Value string
+	}{
+		{Name: "SenderId", Value: "195004372649"},
+		{Name: "SentTimestamp", Value: "1238099229000"},
+		{Name: "ApproximateReceiveCount", Value: "5"},
+		{Name: "ApproximateFirstReceiveTimestamp", Value: "1250700979248"},
+	}
+
+	for i, expected := range expectedAttributeResults {
+		c.Assert(resp.Messages[0].Attribute[i].Name, check.Equals, expected.Name)
+		c.Assert(resp.Messages[0].Attribute[i].Value, check.Equals, expected.Value)
+	}
+
+	expectedMessageAttributeResults := []struct {
+		Name  string
+		Value string
+	}{
+		{Name: "Hero", Value: "James Bond"},
+		{Name: "Villian", Value: "Goldfinger"},
+	}
+
+	for i, expected := range expectedMessageAttributeResults {
+		c.Assert(resp.Messages[0].MessageAttribute[i].Name, check.Equals, expected.Name)
+		c.Assert(resp.Messages[0].MessageAttribute[i].Value.DataType, check.Equals, "String")
+		c.Assert(resp.Messages[0].MessageAttribute[i].Value.StringValue, check.Equals, expected.Value)
+	}
+
+	c.Assert(err, check.IsNil)
+}
+
 func (s *S) TestChangeMessageVisibility(c *check.C) {
 	testServer.PrepareResponse(200, nil, TestReceiveMessageXmlOK)
 
@@ -206,7 +296,7 @@ func (s *S) TestChangeMessageVisibility(c *check.C) {
 	resp, err := q.ChangeMessageVisibility(&resp1.Messages[0], 50)
 	req = testServer.WaitRequest()
 
-	c.Assert(req.Method, check.Equals, "GET")
+	c.Assert(req.Method, check.Equals, "POST")
 	c.Assert(req.URL.Path, check.Equals, "/123456789012/testQueue/")
 	c.Assert(req.Header["Date"], check.Not(check.Equals), "")
 
@@ -222,7 +312,7 @@ func (s *S) TestGetQueueAttributes(c *check.C) {
 	resp, err := q.GetQueueAttributes("All")
 	req := testServer.WaitRequest()
 
-	c.Assert(req.Method, check.Equals, "GET")
+	c.Assert(req.Method, check.Equals, "POST")
 	c.Assert(req.URL.Path, check.Equals, "/123456789012/testQueue/")
 
 	c.Assert(resp.ResponseMetadata.RequestId, check.Equals, "1ea71be5-b5a2-4f9d-b85a-945d8d08cd0b")

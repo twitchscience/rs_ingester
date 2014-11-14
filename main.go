@@ -3,178 +3,118 @@ package main
 import (
 	"errors"
 	"flag"
-	"fmt"
-	"io/ioutil"
 	"log"
-	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
-	"strings"
+	"sync"
 	"syscall"
 	"time"
 
-	"github.com/twitchscience/aws_utils/environment"
-	"github.com/twitchscience/aws_utils/listener"
-
 	"github.com/twitchscience/rs_ingester/keyring"
-	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 
-	"github.com/cactus/go-statsd-client/statsd"
-	"github.com/crowdmob/goamz/aws"
-	"github.com/crowdmob/goamz/sqs"
+	"github.com/twitchscience/rs_ingester/lib"
+	"github.com/twitchscience/rs_ingester/loadclient"
+	"github.com/twitchscience/rs_ingester/metadata"
 )
 
 var (
 	poolSize               int
-	loggingDir             string
 	statsPrefix            string
-	scoopHost              string
-	scoopScheme            string
+	scoopURL               string
+	manifestBucket         string
 	keyRing                = keyring.New()
-	alreadyCheckedOutError = errors.New("")
-	env                    = environment.GetCloudEnv()
+	alreadyCheckedOutError = errors.New("TableName is checked out")
+	pgConfig               metadata.PGConfig
+	loadAgeSeconds         int
+	workerGroup            sync.WaitGroup
 )
 
-type Stats interface {
-	Timing(stat string, delta int64, rate float32) error
-	Close() error
+type LoadWorker struct {
+	MetadataBackend metadata.MetadataBackend
+	Loader          loadclient.Loader
 }
 
-type IngestHandler struct {
-	Auth    scoop_protocol.ScoopSigner
-	Statter Stats
-}
+func (i *LoadWorker) Work() error {
 
-func (i *IngestHandler) Handle(msg *sqs.Message) error {
-	start := time.Now()
-
-	req, err := i.Auth.GetRowCopyRequest(strings.NewReader(msg.Body))
-	if err != nil {
-		return err
+	c := i.MetadataBackend.LoadReady()
+	for load := range c {
+		log.Printf("Loading batch %s (%d files) into table %s", load.UUID, len(load.Loads), load.TableName)
+		err := i.Loader.LoadBatch(load)
+		if err != nil {
+			if err.Retryable() {
+				i.MetadataBackend.LoadError(load.UUID, err.Error())
+			}
+			log.Printf("Error loading: %s, retryable: %t", err.Error(), err.Retryable())
+			continue
+		}
+		log.Printf("Loaded batch %s", load.UUID)
+		i.MetadataBackend.LoadDone(load.UUID)
 	}
-
-	if !keyRing.Checkout(req.TableName) {
-		return alreadyCheckedOutError
-	}
-	defer keyRing.Return(req.TableName)
-
-	resp, err := http.Post(copyURL(), "application/json", strings.NewReader(msg.Body))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-
-	if err != nil {
-		return err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return errors.New(fmt.Sprintf("Post failed with status code: %s body: %q", resp.Status, string(body)))
-	}
-
-	i.Statter.Timing(req.TableName, int64(time.Now().Sub(start)), 1)
+	workerGroup.Done()
 	return nil
 }
 
-func StartWorkers(addr *listener.SQSAddr, stats Stats) ([]*listener.SQSListener, error) {
-	listeners := make([]*listener.SQSListener, poolSize)
+func StartWorkers(b metadata.MetadataBackend, stats lib.Stats) ([]LoadWorker, error) {
+	workers := make([]LoadWorker, poolSize)
 	for i := 0; i < poolSize; i++ {
-		listeners[i] = listener.BuildSQSListener(addr, &IngestHandler{
-			Auth:    scoop_protocol.GetScoopSigner(),
-			Statter: stats,
-		}, 30*time.Second)
-		go listeners[i].Listen()
+		loadclient, err := loadclient.NewScoopLoader(scoopURL, manifestBucket, stats)
+		if err != nil {
+			return workers, err
+		}
+		workers[i] = LoadWorker{MetadataBackend: b, Loader: loadclient}
+		go workers[i].Work()
+		workerGroup.Add(1)
 	}
-	return listeners, nil
-}
-
-func CloseListeners(listeners []*listener.SQSListener) {
-	for _, l := range listeners {
-		l.Close()
-	}
-}
-
-func InitLogger(logDir string) (*os.File, error) {
-	file, err := os.Create(
-		fmt.Sprintf("%v/%v.%v.log", logDir, "Ingester", time.Now().Format("2006-01-02.15:04:00")))
-	if err != nil {
-		return nil, err
-	}
-	log.SetOutput(file)
-	return file, nil
-}
-
-// copyURL builds and returns the scoop row copy URL from flags
-func copyURL() string {
-	u := url.URL{
-		Scheme: scoopScheme,
-		Host:   scoopHost,
-		Path:   "/rows/copy",
-	}
-	return u.String()
+	return workers, nil
 }
 
 func init() {
-	flag.IntVar(&poolSize, "n_workers", 5, "how many connections to redshift should we form?")
-	flag.StringVar(&loggingDir, "logging", "", "where are we logging")
 	flag.StringVar(&statsPrefix, "statsPrefix", "ingester", "the prefix to statsd")
-	flag.StringVar(&scoopHost, "scoopHost", "localhost:8080", "Scoop server host or host:port")
-	flag.StringVar(&scoopScheme, "scoopScheme", "http", "Scoop server URL scheme (e.g. https)")
+	flag.StringVar(&scoopURL, "scoopURL", "", "scoop url, like https://scoop.example.com")
+	flag.StringVar(&pgConfig.DatabaseURL, "databaseURL", "", "Postgres-scheme url for the RDS instance")
+	flag.StringVar(&manifestBucket, "manifestBucket", "", "The s3 bucket to put manifests in")
+	flag.IntVar(&pgConfig.LoadCountTrigger, "loadCountTrigger", 6, "Number of queued loads before a load triggers")
+	flag.IntVar(&pgConfig.MaxConnections, "maxDBConnections", 5, "Number of database connections to open")
+	flag.IntVar(&loadAgeSeconds, "loadAgeSeconds", 1800, "Max age of queued load before it triggers")
+	flag.IntVar(&poolSize, "n_workers", 5, "Number of load workers and therefore scoop connections")
 }
 
 func main() {
 	flag.Parse()
+	pgConfig.LoadAgeTrigger = time.Second * time.Duration(loadAgeSeconds)
 
-	_, err := InitLogger(loggingDir)
+	log.SetOutput(os.Stdout)
+	stats, err := lib.InitStats(statsPrefix)
 	if err != nil {
-		log.Fatalln("Failed to start logger")
+		log.Fatalln("Failed to setup statter", err)
 	}
-
-	auth, err := aws.GetAuth("", "", "", time.Time{})
+	postgresScoopConnection, err := loadclient.NewScoopLoader(scoopURL, manifestBucket, stats)
 	if err != nil {
-		log.Fatalln("Failed to recieve auth")
+		log.Fatalln("Failed to setup scoop client for postgres", err)
 	}
 
-	// Set up statsd monitoring
-	// - If the env is not set up we wil use a noop connection
-	statsdHostport := os.Getenv("STATSD_HOSTPORT")
-	var stats Stats
-	if statsdHostport == "" {
-		// Error is meaningless here.
-		stats, _ = statsd.NewNoop(statsdHostport, statsPrefix)
-	} else {
-		if stats, err = statsd.New(statsdHostport, statsPrefix); err != nil {
-			log.Fatalf("Statsd configuration error: %v", err)
-		}
-		log.Printf("Connected to statsd at %s\n", statsdHostport)
-	}
-
-	listeners, err := StartWorkers(
-		&listener.SQSAddr{
-			Region:    aws.USWest2,
-			QueueName: "spade-compactor-" + env,
-			Auth:      auth,
-		},
-		stats,
-	)
-
+	postgresBackend, err := metadata.NewPostgresLoader(&pgConfig, postgresScoopConnection)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalln("Failed to setup postgres backend", err)
 	}
 
-	wait := make(chan bool)
+	_, err = StartWorkers(postgresBackend, stats)
+	if err != nil {
+		log.Fatalln("Failed to start workers", err)
+	}
 
+	wait := make(chan struct{})
 	sigc := make(chan os.Signal, 1)
-	signal.Notify(sigc,
-		syscall.SIGINT)
+	signal.Notify(sigc, syscall.SIGINT)
+	log.Println("Loader is set up")
 	go func() {
 		<-sigc
+		log.Println("Sigint received -- shutting down")
+		postgresBackend.Close()
 		// Cause flush
-		CloseListeners(listeners)
 		stats.Close()
-		wait <- true
+		workerGroup.Wait()
+		close(wait)
 	}()
 
 	<-wait

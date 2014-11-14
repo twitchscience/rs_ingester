@@ -6,36 +6,49 @@
 	],
 	"Deps": [
 		{
+			"ImportPath": "code.google.com/p/go-uuid/uuid",
+			"Comment": "null-12",
+			"Rev": "7dda39b2e7d5e265014674c5af696ba4186679e9"
+		},
+		{
 			"ImportPath": "github.com/cactus/go-statsd-client/statsd",
-			"Rev": "3999011ef0451eb805b0fa31f98cfb9261bd71be"
+			"Rev": "f934df28073069859c4b8a26e837e0fc55e79d37"
 		},
 		{
 			"ImportPath": "github.com/crowdmob/goamz/aws",
-			"Rev": "c5ba9ad45b6ac022326f0ff9762d6bac33ca8f88"
+			"Rev": "9ded52df97039b758014228f82a3a723fb74ee9c"
 		},
 		{
 			"ImportPath": "github.com/crowdmob/goamz/s3",
-			"Rev": "c5ba9ad45b6ac022326f0ff9762d6bac33ca8f88"
+			"Rev": "9ded52df97039b758014228f82a3a723fb74ee9c"
 		},
 		{
 			"ImportPath": "github.com/crowdmob/goamz/sqs",
-			"Rev": "c5ba9ad45b6ac022326f0ff9762d6bac33ca8f88"
+			"Rev": "9ded52df97039b758014228f82a3a723fb74ee9c"
+		},
+		{
+			"ImportPath": "github.com/lib/pq",
+			"Rev": "3c5c5bd6383b42aec97b5aa39fba2cddd35aea36"
+		},
+		{
+			"ImportPath": "github.com/twitchscience/aws_utils/common",
+			"Rev": "204df0a110d66a2a85f10eaefa1689a2106ed8e2"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/aws_utils/environment",
-			"Rev": "905565bfb31c38d473a91f4fae4006b7c76eefe3"
+			"Rev": "204df0a110d66a2a85f10eaefa1689a2106ed8e2"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/aws_utils/listener",
-			"Rev": "905565bfb31c38d473a91f4fae4006b7c76eefe3"
+			"Rev": "204df0a110d66a2a85f10eaefa1689a2106ed8e2"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/scoop_protocol/msg_signer",
-			"Rev": "43e1abe4cb9e6da0b33fce97e6833e655f02b4d3"
+			"Rev": "8051a71e99fa4e6546107300299098fd1ea95ad6"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/scoop_protocol/scoop_protocol",
-			"Rev": "43e1abe4cb9e6da0b33fce97e6833e655f02b4d3"
+			"Rev": "8051a71e99fa4e6546107300299098fd1ea95ad6"
 		}
 	]
 }

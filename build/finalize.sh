@@ -11,4 +11,5 @@ mv ${PKGDIR}/deploy ${INGESTERDIR}
 chmod +x ${INGESTERDIR}/bin/*
 
 # Setup upstart
-mv ${CONFDIR}/upstart.conf ${UPSTARTDIR}/redshiftIngester.conf
+mv ${CONFDIR}/upstart/dbstorer.conf ${UPSTARTDIR}/dbstorer.conf
+mv ${CONFDIR}/upstart/ingester.conf ${UPSTARTDIR}/ingester.conf
