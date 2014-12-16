@@ -387,8 +387,7 @@ func (b *postgresBackend) fetchLoad() (*LoadBatch, error) {
             (SELECT tablename, min(ts) AS oldest, count(*) AS cnt
              FROM `+pendingLoadTable+` WHERE batch_uuid IS NULL
              GROUP BY tablename) a
-          WHERE cnt > $2
-          OR oldest < $3
+          WHERE (cnt > $2 OR oldest < $3)
           ORDER BY oldest
           LIMIT 1
           )

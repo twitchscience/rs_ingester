@@ -73,7 +73,7 @@ func init() {
 	flag.StringVar(&scoopURL, "scoopURL", "", "scoop url, like https://scoop.example.com")
 	flag.StringVar(&pgConfig.DatabaseURL, "databaseURL", "", "Postgres-scheme url for the RDS instance")
 	flag.StringVar(&manifestBucket, "manifestBucket", "", "The s3 bucket to put manifests in")
-	flag.IntVar(&pgConfig.LoadCountTrigger, "loadCountTrigger", 6, "Number of queued loads before a load triggers")
+	flag.IntVar(&pgConfig.LoadCountTrigger, "loadCountTrigger", 5, "Number of queued loads before a load triggers")
 	flag.IntVar(&pgConfig.MaxConnections, "maxDBConnections", 5, "Number of database connections to open")
 	flag.IntVar(&loadAgeSeconds, "loadAgeSeconds", 1800, "Max age of queued load before it triggers")
 	flag.IntVar(&poolSize, "n_workers", 5, "Number of load workers and therefore scoop connections")
