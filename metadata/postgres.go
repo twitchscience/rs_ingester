@@ -226,7 +226,7 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadBatch, error) {
 			return nil, err
 		}
 
-		loadUuid, last_error, err := staleLoadMetadata(tx)
+		loadUuid, lastError, err := staleLoadMetadata(tx)
 		if err != nil {
 			return nil, err
 		}
@@ -272,8 +272,8 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadBatch, error) {
 			err = tx.Commit()
 
 		case scoop_protocol.LoadNotFound, scoop_protocol.LoadFailed:
-			if last_error != "" {
-				log.Printf("Load %s is in status %s and has a known error (%s), retrying batch", loadUuid, loadStatus, last_error)
+			if lastError.Valid {
+				log.Printf("Load %s is in status %s and has a known error (%s), retrying batch", loadUuid, loadStatus, lastError.String)
 				loadBatch, err := getLoadBatch(tx, loadUuid)
 				if err != nil {
 					return nil, rollbackAndError(tx, err)
@@ -307,7 +307,7 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadBatch, error) {
 	}
 }
 
-func staleLoadMetadata(tx *sql.Tx) (loadUuid string, lastError string, err error) {
+func staleLoadMetadata(tx *sql.Tx) (loadUuid string, lastError sql.NullString, err error) {
 	now := time.Now().In(time.UTC)
 	retry_ts := time.Now().In(time.UTC).Add(staleRecoverDelay)
 	rows, err := tx.Query(`UPDATE `+loadBatchTable+`
