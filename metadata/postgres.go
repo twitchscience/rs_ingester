@@ -118,7 +118,7 @@ func (b *postgresBackend) LoadDone(batchUuid string) {
 		return b.loadDoneHelper(tx, batchUuid)
 	})
 	if err != nil {
-		log.Println("Error marking load %s as done and used all retries; final error: %s", batchUuid, err.Error())
+		log.Printf("Error marking load %s as done and used all retries; final error: %s\n", batchUuid, err.Error())
 	}
 }
 
@@ -127,7 +127,7 @@ func (b *postgresBackend) LoadError(batchUuid string, loadError string) {
 		return b.loadErrorHelper(tx, batchUuid, loadError)
 	})
 	if err != nil {
-		log.Println("Error marking load %s as error and used all retries; final error: %s", batchUuid, err.Error())
+		log.Printf("Error marking load %s as error and used all retries; final error: %s\n", batchUuid, err.Error())
 	}
 }
 
@@ -298,7 +298,7 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadBatch, error) {
 			}
 
 		case scoop_protocol.LoadInProgress:
-			log.Println("Load %s is still in progress, waiting", loadUuid)
+			log.Printf("Load %s is still in progress, waiting\n", loadUuid)
 			err = tx.Rollback()
 			if err != nil {
 				return nil, err
