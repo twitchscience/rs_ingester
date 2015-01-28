@@ -1,0 +1,59 @@
+{
+  "variables":{
+    "project": null,
+    "aws_access_key": "{{env `AWS_ACCESS_KEY`}}",
+    "aws_secret_key": "{{env `AWS_SECRET_KEY`}}",
+    "binary_dir": null,
+    "scripts_dir": null,
+    "security_group_id": null,
+    "branch": null,
+    "source_ami": null,
+    "use_private_ip": null
+  },
+  "builders": [{
+    "type": "amazon-ebs",
+    "ami_name": "{{user `project`}}-{{user `branch`}}-{{timestamp}}",
+    "access_key": "{{user `aws_access_key`}}",
+    "secret_key": "{{user `aws_secret_key`}}",
+    "region": "us-west-2",
+    "ssh_username": "ubuntu",
+    "source_ami": "{{user `source_ami`}}",
+    "instance_type": "m1.medium",
+    "ssh_private_ip": "{{user `use_private_ip`}}",
+    "security_group_id": "{{user `security_group_id`}}",
+     "run_tags": {
+      "type": "builder"
+    },
+    "tags": {
+      "type": "{{user `project`}}",
+      "description": "{{user `branch`}}"
+    }
+
+  }],
+  "provisioners": [
+    {
+      "type": "shell",
+      "inline": ["mkdir -p /opt/science/{{user `project`}}/bin"]
+    },
+    {
+      "type": "file",
+      "source": "{{user `binary_dir`}}/rs_ingester",
+      "destination": "/opt/science/{{user `project`}}/bin"
+    },
+    {
+      "type": "file",
+      "source": "{{user `binary_dir`}}/dbstorer",
+      "destination": "/opt/science/{{user `project`}}/bin"
+    },
+    {
+      "type": "file",
+      "source": "build/scripts",
+      "destination": "/opt/science/{{user `project`}}/bin"
+    },
+    {
+      "type": "file",
+      "source": "build/config/upstart/",
+      "destination": "/etc/init"
+    }
+  ]
+}
