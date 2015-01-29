@@ -34,8 +34,10 @@
     {
       "type": "shell",
       "inline": [
-        "sudo mkdir -p /opt/science/{{user `project`}}/bin",
-        "sudo chown ubuntu /opt/science/{{user `project`}}/bin"
+        "mkdir -p /tmp/{{user `project`}}/bin",
+        "ls -l /tmp/",
+        "sudo mv /tmp/{{user `project`}}/bin /opt/science/{{user `project`}}/bin",
+        "ls -l /opt/science/"
       ]
     },
     {
