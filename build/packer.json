@@ -37,7 +37,7 @@
         "mkdir -p /tmp/{{user `project`}}/bin",
         "ls -l /tmp/",
         "sudo mkdir -p /opt/science",
-        "sudo mv /tmp/{{user `project`}}/bin /opt/science/{{user `project`}}/bin",
+        "sudo mv /tmp/{{user `project`}} /opt/science/{{user `project`}}",
         "ls -l /opt/science/"
       ]
     },
