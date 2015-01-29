@@ -34,7 +34,7 @@
     {
       "type": "shell",
       "inline": [
-        "sudo mkdir -p /opt/science/{{user `project`}}/bin"
+        "sudo mkdir -p /opt/science/{{user `project`}}/bin",
         "sudo chown ubuntu /opt/science/{{user `project`}}/bin"
       ]
     },
