@@ -33,7 +33,7 @@
   "provisioners": [
     {
       "type": "shell",
-      "inline": ["mkdir -p /opt/science/{{user `project`}}/bin"]
+      "inline": ["sudo mkdir -p /opt/science/{{user `project`}}/bin"]
     },
     {
       "type": "file",
@@ -54,6 +54,10 @@
       "type": "file",
       "source": "build/config/upstart/",
       "destination": "/etc/init"
-    }
+    },
+    {
+      "type": "shell",
+      "inline": ["sudo chmod +x /opt/science/{{user `project`}}/bin/*"]
+    },
   ]
 }
