@@ -32,16 +32,15 @@
   }],
   "provisioners": [
     {
+      "_comment": [
+        "To get around permissions issues we create the project folder",
+        "in tmp, and then sudo mv it over to /opt/science"
+      ],
       "type": "shell",
       "inline": [
         "mkdir -p /tmp/{{user `project`}}/bin",
-        "ls -l /tmp/",
         "sudo mkdir -p /opt/science",
-        "sudo mv /tmp/{{user `project`}} /opt/science/{{user `project`}}",
-        "ls -l /opt/science/",
-        "echo ---------",
-        "ls -l /opt/science/rs_ingester",
-        "echo ---------"
+        "sudo mv /tmp/{{user `project`}} /opt/science/{{user `project`}}"
       ]
     },
     {
@@ -62,11 +61,19 @@
     {
       "type": "file",
       "source": "build/config/upstart/",
-      "destination": "/etc/init"
+      "destination": "/opt/science/{{user `project`}}"
     },
     {
+      "_comment": [
+        "Make the binaries executable and symlink the upstart conf files",
+        "into /etc/init"
+      ],
       "type": "shell",
-      "inline": ["sudo chmod +x /opt/science/{{user `project`}}/bin/*"]
+      "inline": 
+      [
+        "sudo chmod +x /opt/science/{{user `project`}}/bin/*",
+        "for f in /opt/science/{{user `project`}}/upstart/*.conf; do sudo ln -s $f /etc/init/$f; done"
+      ]
     }
   ]
 }
