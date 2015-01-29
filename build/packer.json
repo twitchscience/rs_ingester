@@ -56,7 +56,7 @@
     },
     {
       "type": "file",
-      "source": "build/config/upstart/",
+      "source": "build/config/upstart",
       "destination": "/opt/science/{{user `project`}}"
     },
     {
