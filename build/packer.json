@@ -64,7 +64,7 @@
       "inline": 
       [
         "sudo chmod +x /opt/science/{{user `project`}}/bin/*",
-        "for f in /opt/science/{{user `project`}}/upstart/*.conf; do sudo ln -s $f /etc/init/$f; done"
+        "for f in /opt/science/{{user `project`}}/upstart/*.conf; do sudo ln -s $f /etc/init/$(basename $f); done"
       ]
     }
   ]
