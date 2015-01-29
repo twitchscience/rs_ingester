@@ -32,10 +32,6 @@
   }],
   "provisioners": [
     {
-      "_comment": [
-        "To get around permissions issues we create the project folder",
-        "in tmp, and then sudo mv it over to /opt/science"
-      ],
       "type": "shell",
       "inline": [
         "mkdir -p /tmp/{{user `project`}}/bin",
@@ -64,10 +60,6 @@
       "destination": "/opt/science/{{user `project`}}"
     },
     {
-      "_comment": [
-        "Make the binaries executable and symlink the upstart conf files",
-        "into /etc/init"
-      ],
       "type": "shell",
       "inline": 
       [
