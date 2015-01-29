@@ -38,18 +38,21 @@
         "ls -l /tmp/",
         "sudo mkdir -p /opt/science",
         "sudo mv /tmp/{{user `project`}} /opt/science/{{user `project`}}",
-        "ls -l /opt/science/"
+        "ls -l /opt/science/",
+        "echo ---------",
+        "ls -l /opt/science/rs_ingester",
+        "echo ---------"
       ]
     },
     {
       "type": "file",
       "source": "{{user `binary_dir`}}/rs_ingester",
-      "destination": "/opt/science/{{user `project`}}/bin"
+      "destination": "/opt/science/{{user `project`}}/bin/"
     },
     {
       "type": "file",
       "source": "{{user `binary_dir`}}/dbstorer",
-      "destination": "/opt/science/{{user `project`}}/bin"
+      "destination": "/opt/science/{{user `project`}}/bin/"
     },
     {
       "type": "file",
