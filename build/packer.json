@@ -42,16 +42,16 @@
     {
       "type": "file",
       "source": "{{user `binary_dir`}}/rs_ingester",
-      "destination": "/opt/science/{{user `project`}}/bin/"
+      "destination": "/opt/science/{{user `project`}}/bin/rs_ingester"
     },
     {
       "type": "file",
       "source": "{{user `binary_dir`}}/dbstorer",
-      "destination": "/opt/science/{{user `project`}}/bin/"
+      "destination": "/opt/science/{{user `project`}}/bin/dbstorer"
     },
     {
       "type": "file",
-      "source": "build/scripts",
+      "source": "build/scripts/",
       "destination": "/opt/science/{{user `project`}}/bin"
     },
     {
