@@ -5,6 +5,8 @@
     "aws_secret_key": "{{env `AWS_SECRET_KEY`}}",
     "binary_dir": null,
     "scripts_dir": null,
+    "vpc_id": null,
+    "subnet_id": null,
     "security_group_id": null,
     "branch": null,
     "source_ami": null,
@@ -19,6 +21,8 @@
     "ssh_username": "ubuntu",
     "source_ami": "{{user `source_ami`}}",
     "instance_type": "m1.medium",
+    "vpc_id": "{{user `vpc_id`}}",
+    "subnet_id": "{{user `subnet_id`}}",
     "ssh_private_ip": "{{user `use_private_ip`}}",
     "security_group_id": "{{user `security_group_id`}}",
      "run_tags": {
