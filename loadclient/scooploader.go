@@ -17,6 +17,7 @@ import (
 	"github.com/crowdmob/goamz/aws"
 	"github.com/crowdmob/goamz/s3"
 	"github.com/twitchscience/aws_utils/common"
+	"github.com/twitchscience/aws_utils/environment"
 	"github.com/twitchscience/rs_ingester/lib"
 	"github.com/twitchscience/rs_ingester/metadata"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
@@ -55,12 +56,12 @@ func (e scoopLoadError) Retryable() bool {
 	return e.isRetryable
 }
 
-func NewScoopLoader(scoopURL, manifestBucket string, stats lib.Stats) (Loader, error) {
+func NewScoopLoader(scoopURL, manifestBucketPrefix string, stats lib.Stats) (Loader, error) {
 	if scoopURL == "" {
 		return nil, fmt.Errorf("Scoop URL must be provided")
 	}
 
-	bucket, err := GetBucket(manifestBucket)
+	bucket, err := GetBucket(manifestBucketPrefix)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +161,7 @@ func CreateManifestInBucket(batch *metadata.LoadBatch, bucket *s3.Bucket) (strin
 	return url, err
 }
 
-func GetBucket(bucket string) (*s3.Bucket, error) {
+func GetBucket(bucketPrefix string) (*s3.Bucket, error) {
 	auth, err := aws.GetAuth("", "", "", time.Time{})
 	if err != nil {
 		return nil, err
@@ -170,7 +171,8 @@ func GetBucket(bucket string) (*s3.Bucket, error) {
 	s.ConnectTimeout = time.Second * 30
 	s.ReadTimeout = time.Second * 30
 
-	return s.Bucket(strings.TrimPrefix(bucket, "s3://")), nil
+	bucketName := strings.TrimPrefix(bucketPrefix, "s3://") + "-" + environment.GetCloudEnv()
+	return s.Bucket(bucketName), nil
 }
 
 func makeManifestJson(batch *metadata.LoadBatch) ([]byte, error) {

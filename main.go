@@ -21,7 +21,7 @@ var (
 	poolSize               int
 	statsPrefix            string
 	scoopURL               string
-	manifestBucket         string
+	manifestBucketPrefix   string
 	keyRing                = keyring.New()
 	alreadyCheckedOutError = errors.New("TableName is checked out")
 	pgConfig               metadata.PGConfig
@@ -57,7 +57,7 @@ func (i *LoadWorker) Work() error {
 func StartWorkers(b metadata.MetadataBackend, stats lib.Stats) ([]LoadWorker, error) {
 	workers := make([]LoadWorker, poolSize)
 	for i := 0; i < poolSize; i++ {
-		loadclient, err := loadclient.NewScoopLoader(scoopURL, manifestBucket, stats)
+		loadclient, err := loadclient.NewScoopLoader(scoopURL, manifestBucketPrefix, stats)
 		if err != nil {
 			return workers, err
 		}
@@ -72,7 +72,7 @@ func init() {
 	flag.StringVar(&statsPrefix, "statsPrefix", "ingester", "the prefix to statsd")
 	flag.StringVar(&scoopURL, "scoopURL", "", "scoop url, like https://scoop.example.com")
 	flag.StringVar(&pgConfig.DatabaseURL, "databaseURL", "", "Postgres-scheme url for the RDS instance")
-	flag.StringVar(&manifestBucket, "manifestBucket", "", "The s3 bucket to put manifests in")
+	flag.StringVar(&manifestBucketPrefix, "manifestBucketPrefix", "", "Prefix for the S3 bucket for manifests. '-$CLOUD_ENVIRONMENT' will be appended for the actual bucket name")
 	flag.IntVar(&pgConfig.LoadCountTrigger, "loadCountTrigger", 5, "Number of queued loads before a load triggers")
 	flag.IntVar(&pgConfig.MaxConnections, "maxDBConnections", 5, "Number of database connections to open")
 	flag.IntVar(&loadAgeSeconds, "loadAgeSeconds", 1800, "Max age of queued load before it triggers")
@@ -88,7 +88,7 @@ func main() {
 	if err != nil {
 		log.Fatalln("Failed to setup statter", err)
 	}
-	postgresScoopConnection, err := loadclient.NewScoopLoader(scoopURL, manifestBucket, stats)
+	postgresScoopConnection, err := loadclient.NewScoopLoader(scoopURL, manifestBucketPrefix, stats)
 	if err != nil {
 		log.Fatalln("Failed to setup scoop client for postgres", err)
 	}
