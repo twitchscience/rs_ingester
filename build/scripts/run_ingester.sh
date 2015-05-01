@@ -14,4 +14,6 @@ exec ./rs_ingester \
   -statsPrefix="${CLOUD_APP}.${CLOUD_DEV_PHASE:-${CLOUD_ENVIRONMENT}}.${EC2_REGION}.${CLOUD_AUTO_SCALE_GROUP##*-}" \
   -scoopURL="${SCOOP_URL}" \
   -databaseURL="${INGESTER_DB_URL}" \
-  -manifestBucketPrefix="rsingester-manifests"
+  -manifestBucketPrefix="rsingester-manifests" \
+  -loadCountTrigger="${LOAD_COUNT_TRIGGER}" \
+  -loadAgeSeconds="${LOAD_AGE_SECONDS}"
