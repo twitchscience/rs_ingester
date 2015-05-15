@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"strings"
 	"time"
 
 	"code.google.com/p/go-uuid/uuid"
@@ -21,6 +22,7 @@ type PGConfig struct {
 	LoadAgeTrigger   time.Duration
 	LoadCountTrigger int
 	MaxConnections   int
+	TableWhitelist   string
 }
 
 type LoadChecker interface {
@@ -380,6 +382,11 @@ func (b *postgresBackend) fetchLoad() (*LoadBatch, error) {
 		return nil, rollbackAndError(tx, err)
 	}
 
+	tableWhitelistClause := ""
+	if strings.Trim(b.cfg.TableWhitelist, "\t\n ") != "" {
+		tableWhitelistClause = " AND tablename IN ('" + strings.Replace(b.cfg.TableWhitelist, ",", "', '", -1) + "')"
+	}
+
 	_, err = tx.Exec(
 		`UPDATE `+pendingLoadTable+` SET batch_uuid = $1
          WHERE tablename IN
@@ -387,7 +394,7 @@ func (b *postgresBackend) fetchLoad() (*LoadBatch, error) {
             (SELECT tablename, min(ts) AS oldest, count(*) AS cnt
              FROM `+pendingLoadTable+` WHERE batch_uuid IS NULL
              GROUP BY tablename) a
-          WHERE (cnt > $2 OR oldest < $3)
+          WHERE (cnt > $2 OR oldest < $3`+tableWhitelistClause+`)
           ORDER BY oldest
           LIMIT 1
           )

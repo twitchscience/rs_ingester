@@ -75,6 +75,7 @@ func init() {
 	flag.StringVar(&manifestBucketPrefix, "manifestBucketPrefix", "", "Prefix for the S3 bucket for manifests. '-$CLOUD_ENVIRONMENT' will be appended for the actual bucket name")
 	flag.IntVar(&pgConfig.LoadCountTrigger, "loadCountTrigger", 5, "Number of queued loads before a load triggers")
 	flag.IntVar(&pgConfig.MaxConnections, "maxDBConnections", 5, "Number of database connections to open")
+	flag.StringVar(&pgConfig.TableWhitelist, "tableWhitelist", "", "If present, limits loads only to a comma-seperated list of tables")
 	flag.IntVar(&loadAgeSeconds, "loadAgeSeconds", 1800, "Max age of queued load before it triggers")
 	flag.IntVar(&poolSize, "n_workers", 5, "Number of load workers and therefore scoop connections")
 }

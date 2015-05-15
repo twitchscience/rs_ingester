@@ -16,4 +16,5 @@ exec ./rs_ingester \
   -databaseURL="${INGESTER_DB_URL}" \
   -manifestBucketPrefix="rsingester-manifests" \
   -loadCountTrigger="${LOAD_COUNT_TRIGGER}" \
-  -loadAgeSeconds="${LOAD_AGE_SECONDS}"
+  -loadAgeSeconds="${LOAD_AGE_SECONDS}" \
+  -tableWhitelist="${TABLE_WHITELIST}"
