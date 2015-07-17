@@ -28,7 +28,8 @@
 		},
 		{
 			"ImportPath": "github.com/lib/pq",
-			"Rev": "3c5c5bd6383b42aec97b5aa39fba2cddd35aea36"
+			"Comment": "go1.0-cutoff-56-gdc50b6a",
+			"Rev": "dc50b6ad2d3ee836442cf3389009c7cd1e64bb43"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/aws_utils/common",
