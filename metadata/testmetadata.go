@@ -24,6 +24,10 @@ func (t *TestBackend) InsertLoad(load *Load) error {
 	return nil
 }
 
+func (t *TestBackend) PingDB() error {
+	return nil
+}
+
 func (t *TestBackend) Close() {
 	close(t.channel)
 }
