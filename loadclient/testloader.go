@@ -19,3 +19,7 @@ func (t *TestLoader) LoadBatch(batch *metadata.LoadBatch) LoadError {
 func (t *TestLoader) CheckLoad(batchUuid string) (scoop_protocol.LoadStatus, error) {
 	return scoop_protocol.LoadComplete, nil
 }
+
+func (t *TestLoader) PingScoopHealthcheck() (*scoop_protocol.ConnError, error) {
+	return nil, nil
+}

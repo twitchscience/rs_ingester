@@ -360,6 +360,14 @@ func (b *postgresBackend) connectToDB() error {
 	return nil
 }
 
+func (b *postgresBackend) PingDB() error {
+	err := b.db.Ping()
+	if err != nil {
+		return fmt.Errorf("Could not ping rds %v", err)
+	}
+	return nil
+}
+
 func (b *postgresBackend) fetchLoad() (*LoadBatch, error) {
 	tx, err := b.db.Begin()
 	if err != nil {

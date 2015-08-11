@@ -4,6 +4,8 @@ import (
 	"errors"
 	"flag"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/twitchscience/rs_ingester/keyring"
 
+	"github.com/twitchscience/rs_ingester/healthcheck"
 	"github.com/twitchscience/rs_ingester/lib"
 	"github.com/twitchscience/rs_ingester/loadclient"
 	"github.com/twitchscience/rs_ingester/metadata"
@@ -103,6 +106,18 @@ func main() {
 	if err != nil {
 		log.Fatalln("Failed to start workers", err)
 	}
+
+	hcb := healthcheck.BuildHealthCheckBackend(postgresScoopConnection, postgresBackend)
+	hch := healthcheck.BuildHealthCheckHandler(hcb)
+
+	healthServeMux := http.NewServeMux()
+	healthServeMux.Handle("/healthcheck", healthcheck.MakeHealthRouter(hch))
+
+	go func() {
+		if err := http.ListenAndServe(net.JoinHostPort("localhost", "8080"), healthServeMux); err != nil {
+			log.Fatal("Health Check (HTTP) failed: ", err)
+		}
+	}()
 
 	wait := make(chan struct{})
 	sigc := make(chan os.Signal, 1)

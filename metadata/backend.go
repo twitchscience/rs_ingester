@@ -15,6 +15,7 @@ type MetadataBackend interface {
 	LoadReady() chan *LoadBatch
 	LoadError(batchUuid, loadError string)
 	LoadDone(batchUuid string)
+	PingDB() error
 }
 
 type MetadataStorer interface {

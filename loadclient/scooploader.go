@@ -146,6 +146,35 @@ func (sl *ScoopLoader) CheckLoad(batchUuid string) (scoop_protocol.LoadStatus, e
 	return response.LoadStatus, nil
 }
 
+func (sl *ScoopLoader) PingScoopHealthcheck() (*scoop_protocol.ConnError, error) {
+	resp, err := sl.httpClient.Get(sl.scoopURL + "/health")
+	if err != nil {
+		return nil, err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New(fmt.Sprintf("Could not request from Scoop"))
+	}
+
+	b, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	response := &scoop_protocol.ConnError{}
+	err = json.Unmarshal(b, response)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return response, errors.New("Scoop health check failed.")
+	}
+	return response, nil
+}
+
 func CreateManifestInBucket(batch *metadata.LoadBatch, bucket *s3.Bucket) (string, error) {
 	manifest, err := makeManifestJson(batch)
 	if err != nil {
