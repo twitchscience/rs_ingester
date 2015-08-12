@@ -146,7 +146,7 @@ func (sl *ScoopLoader) CheckLoad(batchUuid string) (scoop_protocol.LoadStatus, e
 	return response.LoadStatus, nil
 }
 
-func (sl *ScoopLoader) PingScoopHealthcheck() (*scoop_protocol.ConnError, error) {
+func (sl *ScoopLoader) PingScoopHealthcheck() (*scoop_protocol.ScoopHealthCheck, error) {
 	resp, err := sl.httpClient.Get(sl.scoopURL + "/health")
 	if err != nil {
 		return nil, err
@@ -154,16 +154,12 @@ func (sl *ScoopLoader) PingScoopHealthcheck() (*scoop_protocol.ConnError, error)
 
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, errors.New(fmt.Sprintf("Could not request from Scoop"))
-	}
-
 	b, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	response := &scoop_protocol.ConnError{}
+	response := &scoop_protocol.ScoopHealthCheck{}
 	err = json.Unmarshal(b, response)
 	if err != nil {
 		return nil, err
