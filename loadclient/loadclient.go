@@ -13,5 +13,5 @@ type LoadError interface {
 type Loader interface {
 	LoadBatch(batch *metadata.LoadBatch) LoadError
 	CheckLoad(batchUuid string) (scoop_protocol.LoadStatus, error)
-	PingScoopHealthcheck() (*scoop_protocol.ConnError, error)
+	PingScoopHealthcheck() (*scoop_protocol.ScoopHealthCheck, error)
 }

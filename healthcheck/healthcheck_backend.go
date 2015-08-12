@@ -16,12 +16,12 @@ func BuildHealthCheckBackend(postgresScoopConnection loadclient.Loader, postgres
 	return &HealthCheckBackend{postgresScoopConnection, postgresBackend}
 }
 
-func (hcb *HealthCheckBackend) HealthCheckScoop() (*scoop_protocol.ConnError, error) {
+func (hcb *HealthCheckBackend) GetScoopHealthCheck() (*scoop_protocol.ScoopHealthCheck, error) {
 	scoopStatus, err := hcb.postgresScoopConnection.PingScoopHealthcheck()
 	return scoopStatus, err
 }
 
-func (hcb *HealthCheckBackend) HealthCheckIngesterDB() error {
+func (hcb *HealthCheckBackend) GetIngesterDBHealthCheck() error {
 	err := hcb.postgresBackend.PingDB()
 	return err
 }

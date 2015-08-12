@@ -20,6 +20,6 @@ func (t *TestLoader) CheckLoad(batchUuid string) (scoop_protocol.LoadStatus, err
 	return scoop_protocol.LoadComplete, nil
 }
 
-func (t *TestLoader) PingScoopHealthcheck() (*scoop_protocol.ConnError, error) {
+func (t *TestLoader) PingScoopHealthcheck() (*scoop_protocol.ScoopHealthCheck, error) {
 	return nil, nil
 }
