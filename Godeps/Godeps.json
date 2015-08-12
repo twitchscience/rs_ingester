@@ -1,9 +1,6 @@
 {
 	"ImportPath": "github.com/twitchscience/rs_ingester",
-	"GoVersion": "go1.3",
-	"Packages": [
-		"./..."
-	],
+	"GoVersion": "go1.4.2",
 	"Deps": [
 		{
 			"ImportPath": "code.google.com/p/go-uuid/uuid",
@@ -23,8 +20,8 @@
 			"Rev": "9ded52df97039b758014228f82a3a723fb74ee9c"
 		},
 		{
-			"ImportPath": "github.com/crowdmob/goamz/sqs",
-			"Rev": "9ded52df97039b758014228f82a3a723fb74ee9c"
+			"ImportPath": "github.com/gorilla/context",
+			"Rev": "215affda49addc4c8ef7e2534915df2c8c35c6cd"
 		},
 		{
 			"ImportPath": "github.com/lib/pq",
@@ -40,16 +37,17 @@
 			"Rev": "204df0a110d66a2a85f10eaefa1689a2106ed8e2"
 		},
 		{
-			"ImportPath": "github.com/twitchscience/aws_utils/listener",
-			"Rev": "204df0a110d66a2a85f10eaefa1689a2106ed8e2"
-		},
-		{
 			"ImportPath": "github.com/twitchscience/scoop_protocol/msg_signer",
 			"Rev": "8051a71e99fa4e6546107300299098fd1ea95ad6"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/scoop_protocol/scoop_protocol",
 			"Rev": "8051a71e99fa4e6546107300299098fd1ea95ad6"
+		},
+		{
+			"ImportPath": "github.com/zenazn/goji",
+			"Comment": "v0.9.0-10-g739f05c",
+			"Rev": "739f05c9497895aee8d398a8ff38fb0517c4d670"
 		}
 	]
 }
