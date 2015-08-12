@@ -12,9 +12,10 @@ type HealthCheckHandler struct {
 	hcb *HealthCheckBackend
 }
 
-type HealthStatus struct {
-	ScoopHealthError                    *scoop_protocol.ConnError
-	ScoopConnError, IngesterDBConnError *string
+type IngesterHealthStatus struct {
+	ScoopHealthCheckStatus    *scoop_protocol.ScoopHealthCheck
+	ScoopHealthCheckConnError *string
+	IngesterDBConnError       *string
 }
 
 func BuildHealthCheckHandler(hcb *HealthCheckBackend) *HealthCheckHandler {
@@ -23,31 +24,32 @@ func BuildHealthCheckHandler(hcb *HealthCheckBackend) *HealthCheckHandler {
 }
 
 func (h *HealthCheckHandler) HealthCheckPage(c web.C, w http.ResponseWriter, r *http.Request) {
-	ingesterErr := h.hcb.HealthCheckIngesterDB()
-	scoopStatus, scoopErr := h.hcb.HealthCheckScoop()
+	ingesterErr := h.hcb.GetIngesterDBHealthCheck()
+	scoopStatus, scoopErr := h.hcb.GetScoopHealthCheck()
 
 	responseCode := http.StatusOK
 
-	var scoopHealthError *scoop_protocol.ConnError
-	var scoopConnError, ingesterDBConnError string
+	var scoopHealthCheckStatus *scoop_protocol.ScoopHealthCheck
+	var scoopHealthCheckConnError string
+	var ingesterDBConnError string
 
-	connStatus := HealthStatus{nil, nil, nil}
+	ingesterHealthStatus := IngesterHealthStatus{nil, nil, nil}
 
-	scoopHealthError = scoopStatus
-	connStatus.ScoopHealthError = scoopHealthError
+	scoopHealthCheckStatus = scoopStatus
+	ingesterHealthStatus.ScoopHealthCheckStatus = scoopHealthCheckStatus
 
 	if scoopErr != nil {
 		responseCode = http.StatusServiceUnavailable
-		scoopConnError = scoopErr.Error()
-		connStatus.ScoopConnError = &scoopConnError
+		scoopHealthCheckConnError = scoopErr.Error()
+		ingesterHealthStatus.ScoopHealthCheckConnError = &scoopHealthCheckConnError
 	}
 	if ingesterErr != nil {
 		responseCode = http.StatusInternalServerError
 		ingesterDBConnError = ingesterErr.Error()
-		connStatus.IngesterDBConnError = &ingesterDBConnError
+		ingesterHealthStatus.IngesterDBConnError = &ingesterDBConnError
 	}
 
-	js, err := json.Marshal(connStatus)
+	js, err := json.Marshal(ingesterHealthStatus)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
