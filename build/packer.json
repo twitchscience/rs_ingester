@@ -67,6 +67,12 @@
       "type": "shell",
       "inline":
       [
+        "sudo apt-get update",
+        "sudo apt-get -y install nginx",
+
+        "sudo rm /etc/nginx/sites-*/default",
+        "sudo ln -s /opt/science/{{user `project`}}/config/nginx.conf /etc/nginx/sites-enabled/{{user `project`}}",
+        
         "sudo chmod +x /opt/science/{{user `project`}}/bin/*",
         "for f in /opt/science/{{user `project`}}/upstart/*.conf; do sudo ln -s $f /etc/init/$(basename $f); done"
       ]
