@@ -92,29 +92,29 @@ func main() {
 	if err != nil {
 		log.Fatalln("Failed to setup statter", err)
 	}
-	postgresScoopConnection, err := loadclient.NewScoopLoader(scoopURL, manifestBucketPrefix, stats)
+	scoopConnection, err := loadclient.NewScoopLoader(scoopURL, manifestBucketPrefix, stats)
 	if err != nil {
 		log.Fatalln("Failed to setup scoop client for postgres", err)
 	}
 
-	postgresBackend, err := metadata.NewPostgresLoader(&pgConfig, postgresScoopConnection)
+	pgBackend, err := metadata.NewPostgresLoader(&pgConfig, scoopConnection)
 	if err != nil {
 		log.Fatalln("Failed to setup postgres backend", err)
 	}
 
-	_, err = StartWorkers(postgresBackend, stats)
+	_, err = StartWorkers(pgBackend, stats)
 	if err != nil {
 		log.Fatalln("Failed to start workers", err)
 	}
 
-	hcb := healthcheck.BuildHealthCheckBackend(postgresScoopConnection, postgresBackend)
-	hch := healthcheck.BuildHealthCheckHandler(hcb)
+	hcBackend := healthcheck.BuildHealthCheckBackend(scoopConnection, pgBackend)
+	hcHandler := healthcheck.BuildHealthCheckHandler(hcBackend)
 
-	healthServeMux := http.NewServeMux()
-	healthServeMux.Handle("/healthcheck", healthcheck.MakeHealthRouter(hch))
+	hcServeMux := http.NewServeMux()
+	hcServeMux.Handle("/health", healthcheck.MakeHealthRouter(hcHandler))
 
 	go func() {
-		if err := http.ListenAndServe(net.JoinHostPort("localhost", "8080"), healthServeMux); err != nil {
+		if err := http.ListenAndServe(net.JoinHostPort("localhost", "8080"), hcServeMux); err != nil {
 			log.Fatal("Health Check (HTTP) failed: ", err)
 		}
 	}()
@@ -126,7 +126,7 @@ func main() {
 	go func() {
 		<-sigc
 		log.Println("Sigint received -- shutting down")
-		postgresBackend.Close()
+		pgBackend.Close()
 		// Cause flush
 		stats.Close()
 		workerGroup.Wait()
