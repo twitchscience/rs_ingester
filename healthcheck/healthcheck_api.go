@@ -14,11 +14,11 @@ import (
 	"github.com/zenazn/goji/web/middleware"
 )
 
-func MakeHealthRouter(hch *HealthCheckHandler) http.Handler {
+func MakeHealthRouter(hcHandler *HealthCheckHandler) http.Handler {
 
 	health := web.New()
 
-	goji.Handle("/healthcheck", health)
+	goji.Handle("/health", health)
 
 	health.Use(middleware.EnvInit)
 	health.Use(middleware.RequestID)
@@ -26,7 +26,7 @@ func MakeHealthRouter(hch *HealthCheckHandler) http.Handler {
 	health.Use(middleware.Logger)
 	health.Use(context.ClearHandler)
 
-	health.Get("/healthcheck", hch.HealthCheckPage)
+	health.Get("/health", hcHandler.HealthCheck)
 
 	return health
 }
