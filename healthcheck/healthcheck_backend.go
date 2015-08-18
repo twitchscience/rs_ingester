@@ -18,16 +18,6 @@ func BuildHealthCheckBackend(scoopConnection loadclient.Loader, pgBackend metada
 	return &HealthCheckBackend{scoopConnection, pgBackend}
 }
 
-func (hcBackend *HealthCheckBackend) GetScoopHealthCheck() (*scoop_protocol.ScoopHealthCheck, error) {
-	scoopStatus, err := hcBackend.scoopConnection.PingScoopHealthcheck()
-	return scoopStatus, err
-}
-
-func (hcBackend *HealthCheckBackend) GetIngesterDBHealthCheck() error {
-	err := hcBackend.pgBackend.PingDB()
-	return err
-}
-
 func (hcBackend *HealthCheckBackend) GetHealthStatus() (IngesterHealthStatus, int) {
 	scoopStatus, scoopErr := hcBackend.scoopConnection.PingScoopHealthcheck()
 	ingesterErr := hcBackend.pgBackend.PingDB()
