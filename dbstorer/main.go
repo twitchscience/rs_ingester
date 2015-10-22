@@ -22,6 +22,7 @@ var (
 	env            = environment.GetCloudEnv()
 	pgConfig       metadata.PGConfig
 	loadAgeSeconds int
+	sqsPollWait    time.Duration
 	statsPrefix    string
 )
 
@@ -35,6 +36,7 @@ func init() {
 	flag.StringVar(&pgConfig.DatabaseURL, "databaseURL", "", "Postgres-scheme url for the RDS instance")
 	flag.StringVar(&statsPrefix, "statsPrefix", "dbstorer", "the prefix to statsd")
 	flag.IntVar(&pgConfig.MaxConnections, "maxDBConnections", 5, "Max number of database connections to open")
+	flag.DurationVar(&sqsPollWait, "sqsPollWait", time.Second*30, "Number of seconds to wait between polling SQS")
 }
 
 func main() {
@@ -78,7 +80,7 @@ func StartWorker(addr *listener.SQSAddr, stats lib.Stats, b metadata.MetadataSto
 		MetadataStorer: b,
 		Signer:         scoop_protocol.GetScoopSigner(),
 		Statter:        stats,
-	}, 30*time.Second)
+	}, sqsPollWait)
 	go ret.Listen()
 	return ret
 }
