@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"sync"
@@ -117,6 +118,10 @@ func main() {
 		if err := http.ListenAndServe(net.JoinHostPort("localhost", "8080"), hcServeMux); err != nil {
 			log.Fatal("Health Check (HTTP) failed: ", err)
 		}
+	}()
+
+	go func() {
+        log.Println(http.ListenAndServe(":6060", nil))
 	}()
 
 	wait := make(chan struct{})

@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"log"
+	_ "net/http/pprof"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -52,6 +54,10 @@ func main() {
 	if err != nil {
 		log.Fatalln("Error initializing stats:", err)
 	}
+
+	go func() {
+		log.Println(http.ListenAndServe(":6061", nil))
+	}()
 
 	postgresBackend, err := metadata.NewPostgresStorer(&pgConfig)
 
