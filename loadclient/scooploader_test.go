@@ -8,7 +8,7 @@ import (
 )
 
 func TestMakeManifestFile(t *testing.T) {
-	b := metadata.LoadBatch{
+	b := metadata.LoadManifest{
 		Loads: []metadata.Load{
 			metadata.Load{KeyName: "foo", TableName: "bar"},
 			metadata.Load{KeyName: "fiz", TableName: "bar"},

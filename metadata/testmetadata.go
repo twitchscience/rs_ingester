@@ -1,14 +1,14 @@
 package metadata
 
 type TestBackend struct {
-	channel chan *LoadBatch
+	channel chan *LoadManifest
 }
 
 func NewTestBackend() MetadataBackend {
-	return &TestBackend{channel: make(chan *LoadBatch, 1)}
+	return &TestBackend{channel: make(chan *LoadManifest, 1)}
 }
 
-func (t *TestBackend) LoadReady() chan *LoadBatch {
+func (t *TestBackend) LoadReady() chan *LoadManifest {
 	return t.channel
 }
 

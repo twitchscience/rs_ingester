@@ -12,11 +12,11 @@ func NewTestLoader() Loader {
 	return &TestLoader{}
 }
 
-func (t *TestLoader) LoadBatch(batch *metadata.LoadBatch) LoadError {
+func (t *TestLoader) LoadManifest(manifest *metadata.LoadManifest) LoadError {
 	return nil
 }
 
-func (t *TestLoader) CheckLoad(batchUuid string) (scoop_protocol.LoadStatus, error) {
+func (t *TestLoader) CheckLoad(manifestUuid string) (scoop_protocol.LoadStatus, error) {
 	return scoop_protocol.LoadComplete, nil
 }
 

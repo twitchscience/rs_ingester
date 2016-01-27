@@ -14,8 +14,8 @@ import (
 
 	"time"
 
-	"github.com/crowdmob/goamz/aws"
-	"github.com/crowdmob/goamz/s3"
+	"github.com/AdRoll/goamz/aws"
+	"github.com/AdRoll/goamz/s3"
 	"github.com/twitchscience/aws_utils/common"
 	"github.com/twitchscience/aws_utils/environment"
 	"github.com/twitchscience/rs_ingester/lib"
@@ -74,15 +74,15 @@ func NewScoopLoader(scoopURL, manifestBucketPrefix string, stats lib.Stats) (Loa
 		stats:      stats}, nil
 }
 
-func (sl *ScoopLoader) LoadBatch(batch *metadata.LoadBatch) LoadError {
+func (sl *ScoopLoader) LoadManifest(manifest *metadata.LoadManifest) LoadError {
 	start := time.Now()
 
-	manifestURL, err := CreateManifestInBucket(batch, sl.bucket)
+	manifestURL, err := CreateManifestInBucket(manifest, sl.bucket)
 	if err != nil {
 		return &scoopLoadError{msg: err.Error(), isRetryable: true}
 	}
 
-	req := &scoop_protocol.ManifestRowCopyRequest{ManifestURL: manifestURL, TableName: batch.TableName}
+	req := &scoop_protocol.ManifestRowCopyRequest{ManifestURL: manifestURL, TableName: manifest.TableName}
 
 	jsonRequest, err := json.Marshal(req)
 	if err != nil {
@@ -112,8 +112,8 @@ func manifestUrl(bucketName, uuid string) string {
 	return common.NormalizeS3URL(bucketName + "/" + uuid + ".json")
 }
 
-func (sl *ScoopLoader) CheckLoad(batchUuid string) (scoop_protocol.LoadStatus, error) {
-	url := manifestUrl(sl.bucket.Name, batchUuid)
+func (sl *ScoopLoader) CheckLoad(manifestUuid string) (scoop_protocol.LoadStatus, error) {
+	url := manifestUrl(sl.bucket.Name, manifestUuid)
 
 	rawRequest := &scoop_protocol.LoadCheckRequest{ManifestURL: url}
 	request, err := json.Marshal(rawRequest)
@@ -171,14 +171,14 @@ func (sl *ScoopLoader) PingScoopHealthcheck() (*scoop_protocol.ScoopHealthCheck,
 	return response, nil
 }
 
-func CreateManifestInBucket(batch *metadata.LoadBatch, bucket *s3.Bucket) (string, error) {
-	manifest, err := makeManifestJson(batch)
+func CreateManifestInBucket(manifest *metadata.LoadManifest, bucket *s3.Bucket) (string, error) {
+	manifestJson, err := makeManifestJson(manifest)
 	if err != nil {
 		return "", err
 	}
 
-	url := manifestUrl(bucket.Name, batch.UUID)
-	err = bucket.Put(batch.UUID+".json", manifest, "application/json", s3.BucketOwnerRead, s3.Options{})
+	url := manifestUrl(bucket.Name, manifest.UUID)
+	err = bucket.Put(manifest.UUID+".json", manifestJson, "application/json", s3.BucketOwnerRead, s3.Options{})
 	if err != nil {
 		return "", err
 	}
@@ -200,9 +200,9 @@ func GetBucket(bucketPrefix string) (*s3.Bucket, error) {
 	return s.Bucket(bucketName), nil
 }
 
-func makeManifestJson(batch *metadata.LoadBatch) ([]byte, error) {
+func makeManifestJson(mani *metadata.LoadManifest) ([]byte, error) {
 	m := manifest{}
-	for _, k := range batch.Loads {
+	for _, k := range mani.Loads {
 		m.Entries = append(m.Entries,
 			entry{URL: common.NormalizeS3URL(k.KeyName),
 				Mandatory: true},

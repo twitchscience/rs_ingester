@@ -4,7 +4,7 @@ import "github.com/twitchscience/scoop_protocol/scoop_protocol"
 
 type Load scoop_protocol.RowCopyRequest
 
-type LoadBatch struct {
+type LoadManifest struct {
 	Loads     []Load
 	TableName string
 	UUID      string
@@ -12,9 +12,9 @@ type LoadBatch struct {
 
 type MetadataBackend interface {
 	MetadataStorer
-	LoadReady() chan *LoadBatch
-	LoadError(batchUuid, loadError string)
-	LoadDone(batchUuid string)
+	LoadReady() chan *LoadManifest
+	LoadError(manifestUuid, loadError string)
+	LoadDone(manifestUuid string)
 	PingDB() error
 }
 

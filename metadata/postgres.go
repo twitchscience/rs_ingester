@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"code.google.com/p/go-uuid/uuid"
 	_ "github.com/lib/pq"
+	"github.com/pborman/uuid"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
 
@@ -26,7 +26,7 @@ type PGConfig struct {
 }
 
 type LoadChecker interface {
-	CheckLoad(batchUuid string) (scoop_protocol.LoadStatus, error)
+	CheckLoad(manifestUuid string) (scoop_protocol.LoadStatus, error)
 }
 
 type postgresBackend struct {
@@ -34,16 +34,16 @@ type postgresBackend struct {
 	cfg           *PGConfig
 	loadChecker   LoadChecker
 	wait          chan struct{}
-	loadReady     chan *LoadBatch
+	loadReady     chan *LoadManifest
 	gracefulClose chan struct{}
 }
 
 var (
-	noLoadsError       = errors.New("No loads were found with that batch id")
+	noLoadsError       = errors.New("No loads were found with that manifest id")
 	maxLoadRetryCount  int
 	dbRetryCount       int
-	loadBatchTable     string
-	pendingLoadTable   string
+	manifestTable      string
+	tsvTable           string
 	noWorkDelay        time.Duration
 	errorRetryDelay    time.Duration
 	staleRetryDelay    time.Duration
@@ -52,10 +52,10 @@ var (
 )
 
 func init() {
-	flag.StringVar(&loadBatchTable, "load_batch_table", "load_batch", "Loads DB table for batches")
-	flag.StringVar(&pendingLoadTable, "pending_load_table", "pending_load", "Loads DB table for loads")
+	flag.StringVar(&tsvTable, "tsv_table", "tsv", "Loads DB table for tsvs")
+	flag.StringVar(&manifestTable, "manifest_table", "manifest", "Loads DB table for manifests")
 	flag.DurationVar(&noWorkDelay, "no_work_delay", time.Minute, "Time to wait if there's no work to do")
-	flag.IntVar(&maxLoadRetryCount, "max_load_retry", 5, "Number of times to retry a load batch before giving up")
+	flag.IntVar(&maxLoadRetryCount, "max_load_retry", 5, "Number of times to retry a load manifest before giving up")
 	flag.IntVar(&dbRetryCount, "max_db_retry", 10, "Number of times to retry a transaction")
 	flag.DurationVar(&errorRetryDelay, "error_retry_delay", time.Minute*15, "Time to wait to retry a load that errors")
 	flag.DurationVar(&staleRetryDelay, "stale_retry_delay", time.Hour*3, "Time to wait before checking up on a load")
@@ -80,13 +80,13 @@ func NewPostgresStorer(cfg *PGConfig) (MetadataStorer, error) {
 }
 
 // Configure a new postgres backend for loading (or storing)
-// At backend configuration, we set a max number of pending loads for a table
-// and max count of pending loads before a load is triggered.
+// At backend configuration, we set a max number of tsvs for a table
+// and max count of tsvs before a load is triggered.
 func NewPostgresLoader(cfg *PGConfig, loadChecker LoadChecker) (MetadataBackend, error) {
 	b := &postgresBackend{
 		cfg:           cfg,
 		loadChecker:   loadChecker,
-		loadReady:     make(chan *LoadBatch),
+		loadReady:     make(chan *LoadManifest),
 		wait:          make(chan struct{}),
 		gracefulClose: make(chan struct{}),
 	}
@@ -103,7 +103,7 @@ func NewPostgresLoader(cfg *PGConfig, loadChecker LoadChecker) (MetadataBackend,
 
 func (b *postgresBackend) InsertLoad(load *Load) error {
 	_, err := b.db.Exec(
-		"INSERT INTO "+pendingLoadTable+" (tablename, keyname, ts) VALUES ($1, $2, $3)",
+		"INSERT INTO "+tsvTable+" (tablename, keyname, ts) VALUES ($1, $2, $3)",
 		load.TableName,
 		load.KeyName,
 		time.Now().In(time.UTC),
@@ -111,25 +111,25 @@ func (b *postgresBackend) InsertLoad(load *Load) error {
 	return err
 }
 
-func (b *postgresBackend) LoadReady() chan *LoadBatch {
+func (b *postgresBackend) LoadReady() chan *LoadManifest {
 	return b.loadReady
 }
 
-func (b *postgresBackend) LoadDone(batchUuid string) {
+func (b *postgresBackend) LoadDone(manifestUuid string) {
 	err := retryInTransaction(dbRetryCount, b.db, func(tx *sql.Tx) error {
-		return b.loadDoneHelper(tx, batchUuid)
+		return b.loadDoneHelper(tx, manifestUuid)
 	})
 	if err != nil {
-		log.Printf("Error marking load %s as done and used all retries; final error: %s\n", batchUuid, err.Error())
+		log.Printf("Error marking load %s as done and used all retries; final error: %s\n", manifestUuid, err.Error())
 	}
 }
 
-func (b *postgresBackend) LoadError(batchUuid string, loadError string) {
+func (b *postgresBackend) LoadError(manifestUuid string, loadError string) {
 	err := retryInTransaction(dbRetryCount, b.db, func(tx *sql.Tx) error {
-		return b.loadErrorHelper(tx, batchUuid, loadError)
+		return b.loadErrorHelper(tx, manifestUuid, loadError)
 	})
 	if err != nil {
-		log.Printf("Error marking load %s as error and used all retries; final error: %s\n", batchUuid, err.Error())
+		log.Printf("Error marking load %s as error and used all retries; final error: %s\n", manifestUuid, err.Error())
 	}
 }
 
@@ -142,13 +142,13 @@ func (b *postgresBackend) Close() {
 }
 
 // Non-commiting load done helper function
-func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, batchUuid string) error {
-	_, err := tx.Exec("DELETE FROM "+pendingLoadTable+" WHERE batch_uuid = $1", batchUuid)
+func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUuid string) error {
+	_, err := tx.Exec("DELETE FROM "+tsvTable+" WHERE manifest_uuid = $1", manifestUuid)
 	if err != nil {
 		return rollbackAndError(tx, err)
 	}
 
-	_, err = tx.Exec("DELETE FROM "+loadBatchTable+" WHERE uuid = $1", batchUuid)
+	_, err = tx.Exec("DELETE FROM "+manifestTable+" WHERE uuid = $1", manifestUuid)
 	if err != nil {
 		return rollbackAndError(tx, err)
 	}
@@ -156,11 +156,11 @@ func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, batchUuid string) error {
 	return nil
 }
 
-func (b *postgresBackend) loadErrorHelper(tx *sql.Tx, batchUuid, loadError string) error {
-	_, err := tx.Exec("UPDATE "+loadBatchTable+" SET retry_ts = $1, last_error = $2 WHERE uuid = $3",
+func (b *postgresBackend) loadErrorHelper(tx *sql.Tx, manifestUuid, loadError string) error {
+	_, err := tx.Exec("UPDATE "+manifestTable+" SET retry_ts = $1, last_error = $2 WHERE uuid = $3",
 		time.Now().In(time.UTC).Add(errorRetryDelay),
 		loadError,
-		batchUuid)
+		manifestUuid)
 	if err != nil {
 		return rollbackAndError(tx, err)
 	}
@@ -171,7 +171,7 @@ func (b *postgresBackend) loadErrorHelper(tx *sql.Tx, batchUuid, loadError strin
 func (b *postgresBackend) loadReadyWorker() {
 	var lastStaleCheck time.Time
 	for {
-		var stale *LoadBatch
+		var stale *LoadManifest
 
 		if time.Now().In(time.UTC).Sub(lastStaleCheck) > staleCheckInterval {
 			err := retrying(dbRetryCount, func() error {
@@ -190,17 +190,17 @@ func (b *postgresBackend) loadReadyWorker() {
 			}
 		}
 
-		var batch *LoadBatch
+		var manifest *LoadManifest
 
 		retrying(dbRetryCount, func() error {
 			var err error
-			batch, err = b.fetchLoad()
+			manifest, err = b.fetchLoad()
 			return err
 		})
 
 		sleepDelay := noWorkDelay
-		if batch != nil {
-			b.loadReady <- batch
+		if manifest != nil {
+			b.loadReady <- manifest
 			sleepDelay = time.Millisecond * 10
 		}
 
@@ -215,7 +215,7 @@ func (b *postgresBackend) loadReadyWorker() {
 }
 
 // Check for dead loads and clean them up if possible
-func (b *postgresBackend) fetchStaleLoad() (*LoadBatch, error) {
+func (b *postgresBackend) fetchStaleLoad() (*LoadManifest, error) {
 	for {
 		tx, err := b.db.Begin()
 		if err != nil {
@@ -241,7 +241,7 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadBatch, error) {
 
 		err = tx.Commit()
 		if err != nil {
-			log.Println("Error on commit when locking batch load", err)
+			log.Println("Error on commit when locking manifest load", err)
 			return nil, err
 		}
 
@@ -264,7 +264,7 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadBatch, error) {
 
 		switch loadStatus {
 		case scoop_protocol.LoadComplete:
-			// If completed succesfully, delete pending rows
+			// If completed succesfully, delete tsv rows
 			log.Printf("Load %s is complete, marking done", loadUuid)
 			err = b.loadDoneHelper(tx, loadUuid)
 			if err != nil {
@@ -275,21 +275,21 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadBatch, error) {
 
 		case scoop_protocol.LoadNotFound, scoop_protocol.LoadFailed:
 			if lastError.Valid {
-				log.Printf("Load %s is in status %s and has a known error (%s), retrying batch", loadUuid, loadStatus, lastError.String)
-				loadBatch, err := getLoadBatch(tx, loadUuid)
+				log.Printf("Load %s is in status %s and has a known error (%s), retrying manifest", loadUuid, loadStatus, lastError.String)
+				tsv, err := getLoadManifest(tx, loadUuid)
 				if err != nil {
 					return nil, rollbackAndError(tx, err)
 				}
-				return loadBatch, tx.Commit()
+				return tsv, tx.Commit()
 			}
 
-			log.Printf("Load %s is in status %s, deleting batch so it retries", loadUuid, loadStatus)
-			_, err = tx.Exec(`UPDATE `+pendingLoadTable+` SET batch_uuid = NULL
-                              WHERE batch_uuid = $1`, loadUuid)
+			log.Printf("Load %s is in status %s, deleting manifest so it retries", loadUuid, loadStatus)
+			_, err = tx.Exec(`UPDATE `+tsvTable+` SET manifest_uuid = NULL
+                              WHERE manifest_uuid = $1`, loadUuid)
 			if err != nil {
 				return nil, rollbackAndError(tx, err)
 			}
-			_, err = tx.Exec("DELETE FROM "+loadBatchTable+" WHERE uuid = $1", loadUuid)
+			_, err = tx.Exec("DELETE FROM "+manifestTable+" WHERE uuid = $1", loadUuid)
 			if err != nil {
 				return nil, rollbackAndError(tx, err)
 			}
@@ -312,12 +312,12 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadBatch, error) {
 func staleLoadMetadata(tx *sql.Tx) (loadUuid string, lastError sql.NullString, err error) {
 	now := time.Now().In(time.UTC)
 	retry_ts := time.Now().In(time.UTC).Add(staleRecoverDelay)
-	rows, err := tx.Query(`UPDATE `+loadBatchTable+`
+	rows, err := tx.Query(`UPDATE `+manifestTable+`
                                SET retry_ts = $1,
                                    retry_count = retry_count + 1
                                WHERE uuid IN (
                                  SELECT uuid
-                                 FROM `+loadBatchTable+`
+                                 FROM `+manifestTable+`
                                  WHERE retry_ts < $2 AND retry_count < $3
                                  ORDER BY retry_ts ASC
                                  LIMIT 1
@@ -335,7 +335,7 @@ func staleLoadMetadata(tx *sql.Tx) (loadUuid string, lastError sql.NullString, e
 	if rows.Next() {
 		err = rows.Scan(&loadUuid, &lastError)
 		if err != nil {
-			log.Println("Got error fetching pending load", err)
+			log.Println("Got error fetching tsv row", err)
 			err = rollbackAndError(tx, err)
 			return
 		}
@@ -368,25 +368,25 @@ func (b *postgresBackend) PingDB() error {
 	return nil
 }
 
-func (b *postgresBackend) fetchLoad() (*LoadBatch, error) {
+func (b *postgresBackend) fetchLoad() (*LoadManifest, error) {
 	tx, err := b.db.Begin()
 	if err != nil {
 		return nil, err
 	}
 
 	if isolateTransaction(tx); err != nil {
-		log.Println("Error on setting serializable:", err)
+		log.Println("Error on setting nerializable:", err)
 		return nil, rollbackAndError(tx, err)
 	}
 
-	batchUuid := uuid.NewRandom().String()
+	manifestUuid := uuid.NewRandom().String()
 	retryTs := time.Now().In(time.UTC).Add(staleRetryDelay)
 
-	_, err = tx.Exec(`INSERT INTO `+loadBatchTable+` (uuid, retry_ts)
+	_, err = tx.Exec(`INSERT INTO `+manifestTable+` (uuid, retry_ts)
                       VALUES ($1, $2)
-                     `, batchUuid, retryTs)
+                     `, manifestUuid, retryTs)
 	if err != nil {
-		log.Println("Error creating "+loadBatchTable, err)
+		log.Println("Error creating "+manifestTable, err)
 		return nil, rollbackAndError(tx, err)
 	}
 
@@ -397,20 +397,20 @@ func (b *postgresBackend) fetchLoad() (*LoadBatch, error) {
 	}
 
 	_, err = tx.Exec(
-		`UPDATE `+pendingLoadTable+` SET batch_uuid = $1
+		`UPDATE `+tsvTable+` SET manifest_uuid = $1
          WHERE tablename IN
          (SELECT tablename FROM
             (SELECT tablename, min(ts) AS oldest, count(*) AS cnt
-             FROM `+pendingLoadTable+` WHERE batch_uuid IS NULL
+             FROM `+tsvTable+` WHERE manifest_uuid IS NULL
              GROUP BY tablename) a
           WHERE (cnt > $2 OR oldest < $3)
           `+tableWhitelistClause+`
           ORDER BY oldest
           LIMIT 1
           )
-         AND batch_uuid IS NULL
+         AND manifest_uuid IS NULL
         `,
-		batchUuid,
+		manifestUuid,
 		b.cfg.LoadCountTrigger,
 		time.Now().In(time.UTC).Add(-b.cfg.LoadAgeTrigger),
 	)
@@ -419,7 +419,7 @@ func (b *postgresBackend) fetchLoad() (*LoadBatch, error) {
 		return nil, rollbackAndError(tx, err)
 	}
 
-	loadBatch, err := getLoadBatch(tx, batchUuid)
+	tsv, err := getLoadManifest(tx, manifestUuid)
 	if err != nil {
 		if err == noLoadsError {
 			return nil, tx.Rollback()
@@ -428,14 +428,14 @@ func (b *postgresBackend) fetchLoad() (*LoadBatch, error) {
 		}
 	}
 
-	return loadBatch, tx.Commit()
+	return tsv, tx.Commit()
 }
 
-func getLoadBatch(tx *sql.Tx, batchUuid string) (*LoadBatch, error) {
-	var batch LoadBatch
-	batch.UUID = batchUuid
+func getLoadManifest(tx *sql.Tx, manifestUuid string) (*LoadManifest, error) {
+	var manifest LoadManifest
+	manifest.UUID = manifestUuid
 
-	rows, err := tx.Query("SELECT keyname, tablename FROM "+pendingLoadTable+" WHERE batch_uuid = $1", batchUuid)
+	rows, err := tx.Query("SELECT keyname, tablename FROM "+tsvTable+" WHERE manifest_uuid = $1", manifestUuid)
 	if err != nil {
 		return nil, err
 	}
@@ -449,16 +449,16 @@ func getLoadBatch(tx *sql.Tx, batchUuid string) (*LoadBatch, error) {
 			return nil, err
 		}
 
-		batch.Loads = append(batch.Loads, load)
+		manifest.Loads = append(manifest.Loads, load)
 	}
 
-	if len(batch.Loads) == 0 {
+	if len(manifest.Loads) == 0 {
 		return nil, noLoadsError
 	}
 
-	batch.TableName = batch.Loads[0].TableName
+	manifest.TableName = manifest.Loads[0].TableName
 
-	return &batch, nil
+	return &manifest, nil
 }
 
 func retrying(retryCount int, f func() error) (err error) {
@@ -502,7 +502,7 @@ func isolateTransaction(tx *sql.Tx) error {
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec("LOCK TABLE " + pendingLoadTable + ", " + loadBatchTable + ";")
+	_, err = tx.Exec("LOCK TABLE " + tsvTable + ", " + manifestTable + ";")
 	return err
 }
 

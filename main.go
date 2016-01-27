@@ -42,8 +42,8 @@ func (i *LoadWorker) Work() error {
 
 	c := i.MetadataBackend.LoadReady()
 	for load := range c {
-		log.Printf("Loading batch %s (%d files) into table %s", load.UUID, len(load.Loads), load.TableName)
-		err := i.Loader.LoadBatch(load)
+		log.Printf("Loading manifest %s (%d files) into table %s", load.UUID, len(load.Loads), load.TableName)
+		err := i.Loader.LoadManifest(load)
 		if err != nil {
 			if err.Retryable() {
 				i.MetadataBackend.LoadError(load.UUID, err.Error())
@@ -51,7 +51,7 @@ func (i *LoadWorker) Work() error {
 			log.Printf("Error loading: %s, retryable: %t", err.Error(), err.Retryable())
 			continue
 		}
-		log.Printf("Loaded batch %s", load.UUID)
+		log.Printf("Loaded manifest %s", load.UUID)
 		i.MetadataBackend.LoadDone(load.UUID)
 	}
 	workerGroup.Done()
@@ -121,7 +121,7 @@ func main() {
 	}()
 
 	go func() {
-        log.Println(http.ListenAndServe(":6060", nil))
+		log.Println(http.ListenAndServe(":6060", nil))
 	}()
 
 	wait := make(chan struct{})
@@ -137,6 +137,5 @@ func main() {
 		workerGroup.Wait()
 		close(wait)
 	}()
-
 	<-wait
 }
