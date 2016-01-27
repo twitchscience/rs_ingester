@@ -14,6 +14,7 @@ import (
 
 	_ "github.com/lib/pq"
 	"github.com/pborman/uuid"
+	"github.com/twitchscience/rs_ingester/constants"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
 
@@ -42,8 +43,6 @@ var (
 	noLoadsError       = errors.New("No loads were found with that manifest id")
 	maxLoadRetryCount  int
 	dbRetryCount       int
-	manifestTable      string
-	tsvTable           string
 	noWorkDelay        time.Duration
 	errorRetryDelay    time.Duration
 	staleRetryDelay    time.Duration
@@ -52,8 +51,6 @@ var (
 )
 
 func init() {
-	flag.StringVar(&tsvTable, "tsv_table", "tsv", "Loads DB table for tsvs")
-	flag.StringVar(&manifestTable, "manifest_table", "manifest", "Loads DB table for manifests")
 	flag.DurationVar(&noWorkDelay, "no_work_delay", time.Minute, "Time to wait if there's no work to do")
 	flag.IntVar(&maxLoadRetryCount, "max_load_retry", 5, "Number of times to retry a load manifest before giving up")
 	flag.IntVar(&dbRetryCount, "max_db_retry", 10, "Number of times to retry a transaction")
@@ -71,7 +68,7 @@ func NewPostgresStorer(cfg *PGConfig) (MetadataStorer, error) {
 		wait:      make(chan struct{}),
 	}
 
-	err := b.connectToDB()
+	err := b.connectBackendToDB()
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +88,7 @@ func NewPostgresLoader(cfg *PGConfig, loadChecker LoadChecker) (MetadataBackend,
 		gracefulClose: make(chan struct{}),
 	}
 
-	err := b.connectToDB()
+	err := b.connectBackendToDB()
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +100,7 @@ func NewPostgresLoader(cfg *PGConfig, loadChecker LoadChecker) (MetadataBackend,
 
 func (b *postgresBackend) InsertLoad(load *Load) error {
 	_, err := b.db.Exec(
-		"INSERT INTO "+tsvTable+" (tablename, keyname, ts) VALUES ($1, $2, $3)",
+		"INSERT INTO "+constants.TsvTable+" (tablename, keyname, ts) VALUES ($1, $2, $3)",
 		load.TableName,
 		load.KeyName,
 		time.Now().In(time.UTC),
@@ -143,12 +140,12 @@ func (b *postgresBackend) Close() {
 
 // Non-commiting load done helper function
 func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUuid string) error {
-	_, err := tx.Exec("DELETE FROM "+tsvTable+" WHERE manifest_uuid = $1", manifestUuid)
+	_, err := tx.Exec("DELETE FROM "+constants.TsvTable+" WHERE manifest_uuid = $1", manifestUuid)
 	if err != nil {
 		return rollbackAndError(tx, err)
 	}
 
-	_, err = tx.Exec("DELETE FROM "+manifestTable+" WHERE uuid = $1", manifestUuid)
+	_, err = tx.Exec("DELETE FROM "+constants.ManifestTable+" WHERE uuid = $1", manifestUuid)
 	if err != nil {
 		return rollbackAndError(tx, err)
 	}
@@ -157,7 +154,7 @@ func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUuid string) error 
 }
 
 func (b *postgresBackend) loadErrorHelper(tx *sql.Tx, manifestUuid, loadError string) error {
-	_, err := tx.Exec("UPDATE "+manifestTable+" SET retry_ts = $1, last_error = $2 WHERE uuid = $3",
+	_, err := tx.Exec("UPDATE "+constants.ManifestTable+" SET retry_ts = $1, last_error = $2 WHERE uuid = $3",
 		time.Now().In(time.UTC).Add(errorRetryDelay),
 		loadError,
 		manifestUuid)
@@ -284,12 +281,12 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadManifest, error) {
 			}
 
 			log.Printf("Load %s is in status %s, deleting manifest so it retries", loadUuid, loadStatus)
-			_, err = tx.Exec(`UPDATE `+tsvTable+` SET manifest_uuid = NULL
+			_, err = tx.Exec(`UPDATE `+constants.TsvTable+` SET manifest_uuid = NULL
                               WHERE manifest_uuid = $1`, loadUuid)
 			if err != nil {
 				return nil, rollbackAndError(tx, err)
 			}
-			_, err = tx.Exec("DELETE FROM "+manifestTable+" WHERE uuid = $1", loadUuid)
+			_, err = tx.Exec("DELETE FROM "+constants.ManifestTable+" WHERE uuid = $1", loadUuid)
 			if err != nil {
 				return nil, rollbackAndError(tx, err)
 			}
@@ -312,12 +309,12 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadManifest, error) {
 func staleLoadMetadata(tx *sql.Tx) (loadUuid string, lastError sql.NullString, err error) {
 	now := time.Now().In(time.UTC)
 	retry_ts := time.Now().In(time.UTC).Add(staleRecoverDelay)
-	rows, err := tx.Query(`UPDATE `+manifestTable+`
+	rows, err := tx.Query(`UPDATE `+constants.ManifestTable+`
                                SET retry_ts = $1,
                                    retry_count = retry_count + 1
                                WHERE uuid IN (
                                  SELECT uuid
-                                 FROM `+manifestTable+`
+                                 FROM `+constants.ManifestTable+`
                                  WHERE retry_ts < $2 AND retry_count < $3
                                  ORDER BY retry_ts ASC
                                  LIMIT 1
@@ -346,18 +343,23 @@ func staleLoadMetadata(tx *sql.Tx) (loadUuid string, lastError sql.NullString, e
 	return
 }
 
-func (b *postgresBackend) connectToDB() error {
-	var err error
-	b.db, err = sql.Open("postgres", b.cfg.DatabaseURL)
+func ConnectToDB(dbURL string, maxConnections int) (*sql.DB, error) {
+	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
-		return fmt.Errorf("Got err %v while connecting to rds", err)
+		return nil, fmt.Errorf("Got err %v while connecting to rds", err)
 	}
-	err = b.db.Ping()
+	err = db.Ping()
 	if err != nil {
-		return fmt.Errorf("Could not ping rds %v", err)
+		return nil, fmt.Errorf("Could not ping rds %v", err)
 	}
-	b.db.SetMaxOpenConns(b.cfg.MaxConnections)
-	return nil
+	db.SetMaxOpenConns(maxConnections)
+	return db, nil
+}
+
+func (b *postgresBackend) connectBackendToDB() error {
+	db, err := ConnectToDB(b.cfg.DatabaseURL, b.cfg.MaxConnections)
+	b.db = db
+	return err
 }
 
 func (b *postgresBackend) PingDB() error {
@@ -375,18 +377,18 @@ func (b *postgresBackend) fetchLoad() (*LoadManifest, error) {
 	}
 
 	if isolateTransaction(tx); err != nil {
-		log.Println("Error on setting nerializable:", err)
+		log.Println("Error on setting serializable:", err)
 		return nil, rollbackAndError(tx, err)
 	}
 
 	manifestUuid := uuid.NewRandom().String()
 	retryTs := time.Now().In(time.UTC).Add(staleRetryDelay)
 
-	_, err = tx.Exec(`INSERT INTO `+manifestTable+` (uuid, retry_ts)
+	_, err = tx.Exec(`INSERT INTO `+constants.ManifestTable+` (uuid, retry_ts)
                       VALUES ($1, $2)
                      `, manifestUuid, retryTs)
 	if err != nil {
-		log.Println("Error creating "+manifestTable, err)
+		log.Println("Error creating "+constants.ManifestTable, err)
 		return nil, rollbackAndError(tx, err)
 	}
 
@@ -397,11 +399,11 @@ func (b *postgresBackend) fetchLoad() (*LoadManifest, error) {
 	}
 
 	_, err = tx.Exec(
-		`UPDATE `+tsvTable+` SET manifest_uuid = $1
+		`UPDATE `+constants.TsvTable+` SET manifest_uuid = $1
          WHERE tablename IN
          (SELECT tablename FROM
             (SELECT tablename, min(ts) AS oldest, count(*) AS cnt
-             FROM `+tsvTable+` WHERE manifest_uuid IS NULL
+             FROM `+constants.TsvTable+` WHERE manifest_uuid IS NULL
              GROUP BY tablename) a
           WHERE (cnt > $2 OR oldest < $3)
           `+tableWhitelistClause+`
@@ -435,7 +437,7 @@ func getLoadManifest(tx *sql.Tx, manifestUuid string) (*LoadManifest, error) {
 	var manifest LoadManifest
 	manifest.UUID = manifestUuid
 
-	rows, err := tx.Query("SELECT keyname, tablename FROM "+tsvTable+" WHERE manifest_uuid = $1", manifestUuid)
+	rows, err := tx.Query("SELECT keyname, tablename FROM "+constants.TsvTable+" WHERE manifest_uuid = $1", manifestUuid)
 	if err != nil {
 		return nil, err
 	}
@@ -502,7 +504,7 @@ func isolateTransaction(tx *sql.Tx) error {
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec("LOCK TABLE " + tsvTable + ", " + manifestTable + ";")
+	_, err = tx.Exec("LOCK TABLE " + constants.TsvTable + ", " + constants.ManifestTable + ";")
 	return err
 }
 

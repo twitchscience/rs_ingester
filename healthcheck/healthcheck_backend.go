@@ -14,7 +14,7 @@ type HealthCheckBackend struct {
 	pgBackend       metadata.MetadataBackend
 }
 
-func BuildHealthCheckBackend(scoopConnection loadclient.Loader, pgBackend metadata.MetadataBackend) *HealthCheckBackend {
+func NewHealthCheckBackend(scoopConnection loadclient.Loader, pgBackend metadata.MetadataBackend) *HealthCheckBackend {
 	return &HealthCheckBackend{scoopConnection, pgBackend}
 }
 

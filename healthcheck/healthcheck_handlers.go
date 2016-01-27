@@ -18,7 +18,7 @@ type IngesterHealthStatus struct {
 	IngesterDBConnError       *string
 }
 
-func BuildHealthCheckHandler(hcb *HealthCheckBackend) *HealthCheckHandler {
+func NewHealthCheckHandler(hcb *HealthCheckBackend) *HealthCheckHandler {
 	return &HealthCheckHandler{hcb}
 }
 

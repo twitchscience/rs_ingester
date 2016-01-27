@@ -16,9 +16,9 @@ import (
 
 	"github.com/AdRoll/goamz/aws"
 	"github.com/AdRoll/goamz/s3"
+	"github.com/cactus/go-statsd-client/statsd"
 	"github.com/twitchscience/aws_utils/common"
 	"github.com/twitchscience/aws_utils/environment"
-	"github.com/twitchscience/rs_ingester/lib"
 	"github.com/twitchscience/rs_ingester/metadata"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
@@ -39,7 +39,7 @@ type manifest struct {
 type ScoopLoader struct {
 	scoopURL   string
 	bucket     *s3.Bucket
-	stats      lib.Stats
+	stats      statsd.Statter
 	httpClient *http.Client
 }
 
@@ -56,7 +56,7 @@ func (e scoopLoadError) Retryable() bool {
 	return e.isRetryable
 }
 
-func NewScoopLoader(scoopURL, manifestBucketPrefix string, stats lib.Stats) (Loader, error) {
+func NewScoopLoader(scoopURL, manifestBucketPrefix string, stats statsd.Statter) (Loader, error) {
 	if scoopURL == "" {
 		return nil, fmt.Errorf("Scoop URL must be provided")
 	}

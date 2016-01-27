@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cactus/go-statsd-client/statsd"
+	"github.com/twitchscience/rs_ingester/control"
 	"github.com/twitchscience/rs_ingester/keyring"
 
 	"github.com/twitchscience/rs_ingester/healthcheck"
@@ -58,7 +60,7 @@ func (i *LoadWorker) Work() error {
 	return nil
 }
 
-func StartWorkers(b metadata.MetadataBackend, stats lib.Stats) ([]LoadWorker, error) {
+func StartWorkers(b metadata.MetadataBackend, stats statsd.Statter) ([]LoadWorker, error) {
 	workers := make([]LoadWorker, poolSize)
 	for i := 0; i < poolSize; i++ {
 		loadclient, err := loadclient.NewScoopLoader(scoopURL, manifestBucketPrefix, stats)
@@ -108,15 +110,25 @@ func main() {
 		log.Fatalln("Failed to start workers", err)
 	}
 
-	hcBackend := healthcheck.BuildHealthCheckBackend(scoopConnection, pgBackend)
-	hcHandler := healthcheck.BuildHealthCheckHandler(hcBackend)
+	hcBackend := healthcheck.NewHealthCheckBackend(scoopConnection, pgBackend)
+	hcHandler := healthcheck.NewHealthCheckHandler(hcBackend)
 
-	hcServeMux := http.NewServeMux()
-	hcServeMux.Handle("/health", healthcheck.MakeHealthRouter(hcHandler))
+	serveMux := http.NewServeMux()
+	serveMux.Handle("/health", healthcheck.NewHealthRouter(hcHandler))
+
+	db, err := metadata.ConnectToDB(pgConfig.DatabaseURL, pgConfig.MaxConnections)
+	if err != nil {
+		log.Fatalln("Failed to set up postgres connection", err)
+	}
+	controlBackend := control.NewControlBackend(db)
+	controlHandler := control.NewControlHandler(controlBackend, stats)
+
+	serveMux.Handle("/control/ingest", control.NewControlRouter(controlHandler))
+	serveMux.Handle("/loads/tables", control.NewControlRouter(controlHandler))
 
 	go func() {
-		if err := http.ListenAndServe(net.JoinHostPort("localhost", "8080"), hcServeMux); err != nil {
-			log.Fatal("Health Check (HTTP) failed: ", err)
+		if err := http.ListenAndServe(net.JoinHostPort("localhost", "8080"), serveMux); err != nil {
+			log.Fatal("Serving health and control failed: ", err)
 		}
 	}()
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/AdRoll/goamz/aws"
 	"github.com/AdRoll/goamz/sqs"
+	"github.com/cactus/go-statsd-client/statsd"
 	"github.com/twitchscience/aws_utils/environment"
 	"github.com/twitchscience/aws_utils/listener"
 	"github.com/twitchscience/rs_ingester/lib"
@@ -31,7 +32,7 @@ var (
 type RDSPipeHandler struct {
 	MetadataStorer metadata.MetadataStorer
 	Signer         scoop_protocol.ScoopSigner
-	Statter        lib.Stats
+	Statter        statsd.Statter
 }
 
 func init() {
@@ -81,7 +82,7 @@ func main() {
 	<-wait
 }
 
-func StartWorker(addr *listener.SQSAddr, stats lib.Stats, b metadata.MetadataStorer) *listener.SQSListener {
+func StartWorker(addr *listener.SQSAddr, stats statsd.Statter, b metadata.MetadataStorer) *listener.SQSListener {
 	ret := listener.BuildSQSListener(addr, &RDSPipeHandler{
 		MetadataStorer: b,
 		Signer:         scoop_protocol.GetScoopSigner(),

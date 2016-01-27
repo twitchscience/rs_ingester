@@ -1,5 +1,5 @@
 {
-	"ImportPath": "github.com/TwitchScience/rs_ingester",
+	"ImportPath": "github.com/twitchscience/rs_ingester",
 	"GoVersion": "go1.5",
 	"Packages": [
 		"./..."
@@ -48,26 +48,6 @@
 			"Rev": "716655985f248bcc7391132fa32118a4ecfcffcd"
 		},
 		{
-			"ImportPath": "github.com/twitchscience/rs_ingester/healthcheck",
-			"Rev": "138c9e832e8276535cc5d3d76686e4c7fbdde1ac"
-		},
-		{
-			"ImportPath": "github.com/twitchscience/rs_ingester/keyring",
-			"Rev": "138c9e832e8276535cc5d3d76686e4c7fbdde1ac"
-		},
-		{
-			"ImportPath": "github.com/twitchscience/rs_ingester/lib",
-			"Rev": "138c9e832e8276535cc5d3d76686e4c7fbdde1ac"
-		},
-		{
-			"ImportPath": "github.com/twitchscience/rs_ingester/loadclient",
-			"Rev": "138c9e832e8276535cc5d3d76686e4c7fbdde1ac"
-		},
-		{
-			"ImportPath": "github.com/twitchscience/rs_ingester/metadata",
-			"Rev": "138c9e832e8276535cc5d3d76686e4c7fbdde1ac"
-		},
-		{
 			"ImportPath": "github.com/twitchscience/scoop_protocol/msg_signer",
 			"Rev": "b7666a5d528ab8300d26eea282b4658d81276111"
 		},
@@ -76,7 +56,7 @@
 			"Rev": "b7666a5d528ab8300d26eea282b4658d81276111"
 		},
 		{
-			"ImportPath": "github.com/zenazn/goji",
+			"ImportPath": "github.com/zenazn/goji/web",
 			"Comment": "v0.9.0-34-gbf843a1",
 			"Rev": "bf843a174a08e846246b8945f8a9a853d84a256a"
 		}
