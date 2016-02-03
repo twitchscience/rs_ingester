@@ -22,15 +22,11 @@ func NewControlHandler(ch *ControlBackend, stats statsd.Statter) *ControlHandler
 	return &ControlHandler{ch, stats}
 }
 
+// respondWithJsonError responds with a JSON error with the given error code. The format of the
+// JSON error is {"Error": text}
+//	It's very likely that you want to return from the handler after calling
+//	this.
 func respondWithJsonError(w http.ResponseWriter, text string, responseCode int) {
-	/*
-		respondWithJsonError esponds with a JSON error with the given error code. The format of the
-		JSON error is {"Error": text}
-
-		It's very likely that you want to return from the handler after calling
-		this.
-	*/
-
 	js, err := json.Marshal(ControlError{text})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -41,16 +37,26 @@ func respondWithJsonError(w http.ResponseWriter, text string, responseCode int) 
 	w.Write(js)
 }
 
+// ForceIngest forces ingest of a particular table. Takes a JSON POST containing the
+// table field, representing the name of the table to be ingested.
 func (ch *ControlHandler) ForceIngest(c web.C, w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
-	table := r.Form.Get("table")
+	decoder := json.NewDecoder(r.Body)
+	var tableArg struct {
+		Table string
+	}
+	err := decoder.Decode(&tableArg)
+	if err != nil {
+		respondWithJsonError(w, "Problem decoding JSON POST data.", http.StatusBadRequest)
+		return
+	}
+	table := tableArg.Table
 
 	if len(table) <= 0 {
 		respondWithJsonError(w, "Table name empty.", http.StatusBadRequest)
 		return
 	}
 
-	err := ch.cb.ForceIngest(table)
+	err = ch.cb.ForceIngest(table)
 	if err != nil {
 		respondWithJsonError(w, err.Error(), http.StatusInternalServerError)
 		return
