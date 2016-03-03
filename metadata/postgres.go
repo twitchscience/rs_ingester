@@ -100,9 +100,10 @@ func NewPostgresLoader(cfg *PGConfig, loadChecker LoadChecker) (MetadataBackend,
 
 func (b *postgresBackend) InsertLoad(load *Load) error {
 	_, err := b.db.Exec(
-		"INSERT INTO "+constants.TsvTable+" (tablename, keyname, ts) VALUES ($1, $2, $3)",
+		"INSERT INTO "+constants.TsvTable+" (tablename, keyname, tableversion, ts) VALUES ($1, $2, $3, $4)",
 		load.TableName,
 		load.KeyName,
+		load.TableVersion,
 		time.Now().In(time.UTC),
 	)
 	return err

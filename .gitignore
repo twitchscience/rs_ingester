@@ -4,3 +4,4 @@ libexec
 .ruby-version
 Vagrantfile
 rs_ingester
+.arcconfig
