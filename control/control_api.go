@@ -8,7 +8,8 @@ import (
 	"github.com/zenazn/goji/web/middleware"
 )
 
-func NewControlRouter(cHandler *ControlHandler) http.Handler {
+// NewControlRouter instantiates an http.Handler with the control routes
+func NewControlRouter(cHandler *Handler) http.Handler {
 	control := web.New()
 
 	control.Use(middleware.EnvInit)

@@ -3,22 +3,25 @@ package healthcheck
 import (
 	"net/http"
 
-	_ "github.com/lib/pq"
+	_ "github.com/lib/pq" // To register "postgres" with database/sql
 	"github.com/twitchscience/rs_ingester/loadclient"
 	"github.com/twitchscience/rs_ingester/metadata"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
 
-type HealthCheckBackend struct {
+// Backend is the healthcheck's backend
+type Backend struct {
 	scoopConnection loadclient.Loader
-	pgBackend       metadata.MetadataBackend
+	pgBackend       metadata.Backend
 }
 
-func NewHealthCheckBackend(scoopConnection loadclient.Loader, pgBackend metadata.MetadataBackend) *HealthCheckBackend {
-	return &HealthCheckBackend{scoopConnection, pgBackend}
+// NewHealthCheckBackend inits a new healthcheck backend
+func NewHealthCheckBackend(scoopConnection loadclient.Loader, pgBackend metadata.Backend) *Backend {
+	return &Backend{scoopConnection, pgBackend}
 }
 
-func (hcBackend *HealthCheckBackend) GetHealthStatus() (IngesterHealthStatus, int) {
+// GetHealthStatus checks if we can talk to scoop and the ingester db
+func (hcBackend *Backend) GetHealthStatus() (IngesterHealthStatus, int) {
 	scoopStatus, scoopErr := hcBackend.scoopConnection.PingScoopHealthcheck()
 	ingesterErr := hcBackend.pgBackend.PingDB()
 
@@ -28,21 +31,21 @@ func (hcBackend *HealthCheckBackend) GetHealthStatus() (IngesterHealthStatus, in
 	var scoopHealthCheckConnError string
 	var ingesterDBConnError string
 
-	ingesterHealthStatus := IngesterHealthStatus{nil, nil, nil}
+	ingesterStatus := IngesterHealthStatus{nil, nil, nil}
 
 	scoopHealthCheckStatus = scoopStatus
-	ingesterHealthStatus.ScoopHealthCheckStatus = scoopHealthCheckStatus
+	ingesterStatus.ScoopHealthCheckStatus = scoopHealthCheckStatus
 
 	if scoopErr != nil {
 		responseCode = http.StatusServiceUnavailable
 		scoopHealthCheckConnError = scoopErr.Error()
-		ingesterHealthStatus.ScoopHealthCheckConnError = &scoopHealthCheckConnError
+		ingesterStatus.ScoopHealthCheckConnError = &scoopHealthCheckConnError
 	}
 	if ingesterErr != nil {
 		responseCode = http.StatusInternalServerError
 		ingesterDBConnError = ingesterErr.Error()
-		ingesterHealthStatus.IngesterDBConnError = &ingesterDBConnError
+		ingesterStatus.IngesterDBConnError = &ingesterDBConnError
 	}
 
-	return ingesterHealthStatus, responseCode
+	return ingesterStatus, responseCode
 }

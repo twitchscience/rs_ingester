@@ -18,7 +18,7 @@ func TestMakeManifestFile(t *testing.T) {
 		UUID:      "deadbeef",
 	}
 
-	buf, err := makeManifestJson(&b)
+	buf, err := makeManifestJSON(&b)
 	if err != nil {
 		t.Fatal("Got error making manifest", err)
 	}

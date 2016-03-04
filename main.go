@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"log"
 	"net"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/cactus/go-statsd-client/statsd"
 	"github.com/twitchscience/rs_ingester/control"
-	"github.com/twitchscience/rs_ingester/keyring"
 
 	"github.com/twitchscience/rs_ingester/healthcheck"
 	"github.com/twitchscience/rs_ingester/lib"
@@ -24,23 +22,21 @@ import (
 )
 
 var (
-	poolSize               int
-	statsPrefix            string
-	scoopURL               string
-	manifestBucketPrefix   string
-	keyRing                = keyring.New()
-	alreadyCheckedOutError = errors.New("TableName is checked out")
-	pgConfig               metadata.PGConfig
-	loadAgeSeconds         int
-	workerGroup            sync.WaitGroup
+	poolSize             int
+	statsPrefix          string
+	scoopURL             string
+	manifestBucketPrefix string
+	pgConfig             metadata.PGConfig
+	loadAgeSeconds       int
+	workerGroup          sync.WaitGroup
 )
 
-type LoadWorker struct {
-	MetadataBackend metadata.MetadataBackend
+type loadWorker struct {
+	MetadataBackend metadata.Backend
 	Loader          loadclient.Loader
 }
 
-func (i *LoadWorker) Work() error {
+func (i *loadWorker) Work() {
 
 	c := i.MetadataBackend.LoadReady()
 	for load := range c {
@@ -57,17 +53,16 @@ func (i *LoadWorker) Work() error {
 		i.MetadataBackend.LoadDone(load.UUID)
 	}
 	workerGroup.Done()
-	return nil
 }
 
-func StartWorkers(b metadata.MetadataBackend, stats statsd.Statter) ([]LoadWorker, error) {
-	workers := make([]LoadWorker, poolSize)
+func startWorkers(b metadata.Backend, stats statsd.Statter) ([]loadWorker, error) {
+	workers := make([]loadWorker, poolSize)
 	for i := 0; i < poolSize; i++ {
 		loadclient, err := loadclient.NewScoopLoader(scoopURL, manifestBucketPrefix, stats)
 		if err != nil {
 			return workers, err
 		}
-		workers[i] = LoadWorker{MetadataBackend: b, Loader: loadclient}
+		workers[i] = loadWorker{MetadataBackend: b, Loader: loadclient}
 		go workers[i].Work()
 		workerGroup.Add(1)
 	}
@@ -105,7 +100,7 @@ func main() {
 		log.Fatalln("Failed to setup postgres backend", err)
 	}
 
-	_, err = StartWorkers(pgBackend, stats)
+	_, err = startWorkers(pgBackend, stats)
 	if err != nil {
 		log.Fatalln("Failed to start workers", err)
 	}
@@ -127,7 +122,7 @@ func main() {
 	serveMux.Handle("/loads/tables", control.NewControlRouter(controlHandler))
 
 	go func() {
-		if err := http.ListenAndServe(net.JoinHostPort("localhost", "8080"), serveMux); err != nil {
+		if err = http.ListenAndServe(net.JoinHostPort("localhost", "8080"), serveMux); err != nil {
 			log.Fatal("Serving health and control failed: ", err)
 		}
 	}()
@@ -145,7 +140,10 @@ func main() {
 		log.Println("Sigint received -- shutting down")
 		pgBackend.Close()
 		// Cause flush
-		stats.Close()
+		err = stats.Close()
+		if err != nil {
+			log.Printf("Error closing statter: %s", err)
+		}
 		workerGroup.Wait()
 		close(wait)
 	}()

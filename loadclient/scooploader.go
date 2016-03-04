@@ -36,6 +36,7 @@ type manifest struct {
 	Entries []entry `json:"entries"`
 }
 
+// ScoopLoader manages loads with scoop
 type ScoopLoader struct {
 	scoopURL   string
 	bucket     *s3.Bucket
@@ -56,6 +57,7 @@ func (e scoopLoadError) Retryable() bool {
 	return e.isRetryable
 }
 
+// NewScoopLoader initializes a scoop loader
 func NewScoopLoader(scoopURL, manifestBucketPrefix string, stats statsd.Statter) (Loader, error) {
 	if scoopURL == "" {
 		return nil, fmt.Errorf("Scoop URL must be provided")
@@ -74,6 +76,7 @@ func NewScoopLoader(scoopURL, manifestBucketPrefix string, stats statsd.Statter)
 		stats:      stats}, nil
 }
 
+// LoadManifest creates and attempts to load a manifest of files
 func (sl *ScoopLoader) LoadManifest(manifest *metadata.LoadManifest) LoadError {
 	start := time.Now()
 
@@ -93,7 +96,12 @@ func (sl *ScoopLoader) LoadManifest(manifest *metadata.LoadManifest) LoadError {
 	if err != nil {
 		return &scoopLoadError{msg: err.Error(), isRetryable: false} // We just let it go stale in this case; network failures aren't safe
 	}
-	defer resp.Body.Close()
+	defer func() {
+		err = resp.Body.Close()
+		if err != nil {
+			log.Printf("Error closing response body: %s", err)
+		}
+	}()
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return &scoopLoadError{msg: err.Error(), isRetryable: false} // Likewise here
@@ -103,17 +111,21 @@ func (sl *ScoopLoader) LoadManifest(manifest *metadata.LoadManifest) LoadError {
 		log.Printf("Post failed with status code: %s, body: %s", resp.Status, body)
 		return &scoopLoadError{msg: fmt.Sprintf("Post failed with status code: %s, body: %s", resp.Status, body), isRetryable: true}
 	}
-	sl.stats.Timing(req.TableName, int64(time.Now().Sub(start)), 1)
+	err = sl.stats.Timing(req.TableName, int64(time.Now().Sub(start)), 1)
+	if err != nil {
+		log.Printf("Error sending %s stat to statsd: %s", req.TableName, err)
+	}
 
 	return nil
 }
 
-func manifestUrl(bucketName, uuid string) string {
+func manifestURL(bucketName, uuid string) string {
 	return common.NormalizeS3URL(bucketName + "/" + uuid + ".json")
 }
 
-func (sl *ScoopLoader) CheckLoad(manifestUuid string) (scoop_protocol.LoadStatus, error) {
-	url := manifestUrl(sl.bucket.Name, manifestUuid)
+// CheckLoad checks scoop for the status of a particular manifest load
+func (sl *ScoopLoader) CheckLoad(manifestUUID string) (scoop_protocol.LoadStatus, error) {
+	url := manifestURL(sl.bucket.Name, manifestUUID)
 
 	rawRequest := &scoop_protocol.LoadCheckRequest{ManifestURL: url}
 	request, err := json.Marshal(rawRequest)
@@ -126,11 +138,16 @@ func (sl *ScoopLoader) CheckLoad(manifestUuid string) (scoop_protocol.LoadStatus
 		return "", err
 	}
 
-	defer resp.Body.Close()
+	defer func() {
+		err = resp.Body.Close()
+		if err != nil {
+			log.Printf("Error closing response body: %s", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		log.Printf("Post failed with status code: %s", resp.Status)
-		return "", errors.New(fmt.Sprintf("Post failed with status code: %s", resp.Status))
+		return "", fmt.Errorf("Post failed with status code: %s", resp.Status)
 	}
 	b, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
@@ -146,13 +163,19 @@ func (sl *ScoopLoader) CheckLoad(manifestUuid string) (scoop_protocol.LoadStatus
 	return response.LoadStatus, nil
 }
 
+// PingScoopHealthcheck hits and parses scoop's health check
 func (sl *ScoopLoader) PingScoopHealthcheck() (*scoop_protocol.ScoopHealthCheck, error) {
 	resp, err := sl.httpClient.Get(sl.scoopURL + "/health")
 	if err != nil {
 		return nil, err
 	}
 
-	defer resp.Body.Close()
+	defer func() {
+		err = resp.Body.Close()
+		if err != nil {
+			log.Printf("Error closing response body: %s", err)
+		}
+	}()
 
 	b, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
@@ -171,14 +194,15 @@ func (sl *ScoopLoader) PingScoopHealthcheck() (*scoop_protocol.ScoopHealthCheck,
 	return response, nil
 }
 
+// CreateManifestInBucket creates and uploads a manifest file to s3
 func CreateManifestInBucket(manifest *metadata.LoadManifest, bucket *s3.Bucket) (string, error) {
-	manifestJson, err := makeManifestJson(manifest)
+	manifestJSON, err := makeManifestJSON(manifest)
 	if err != nil {
 		return "", err
 	}
 
-	url := manifestUrl(bucket.Name, manifest.UUID)
-	err = bucket.Put(manifest.UUID+".json", manifestJson, "application/json", s3.BucketOwnerRead, s3.Options{})
+	url := manifestURL(bucket.Name, manifest.UUID)
+	err = bucket.Put(manifest.UUID+".json", manifestJSON, "application/json", s3.BucketOwnerRead, s3.Options{})
 	if err != nil {
 		return "", err
 	}
@@ -186,6 +210,7 @@ func CreateManifestInBucket(manifest *metadata.LoadManifest, bucket *s3.Bucket) 
 	return url, err
 }
 
+// GetBucket creates the s3.Bucket from the bucket name
 func GetBucket(bucketPrefix string) (*s3.Bucket, error) {
 	auth, err := aws.GetAuth("", "", "", time.Time{})
 	if err != nil {
@@ -200,7 +225,7 @@ func GetBucket(bucketPrefix string) (*s3.Bucket, error) {
 	return s.Bucket(bucketName), nil
 }
 
-func makeManifestJson(mani *metadata.LoadManifest) ([]byte, error) {
+func makeManifestJSON(mani *metadata.LoadManifest) ([]byte, error) {
 	m := manifest{}
 	for _, k := range mani.Loads {
 		m.Entries = append(m.Entries,

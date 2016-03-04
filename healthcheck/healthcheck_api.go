@@ -13,7 +13,8 @@ import (
 	"github.com/zenazn/goji/web/middleware"
 )
 
-func NewHealthRouter(hcHandler *HealthCheckHandler) http.Handler {
+// NewHealthRouter initializes the healthcheck router
+func NewHealthRouter(hcHandler *Handler) http.Handler {
 
 	health := web.New()
 

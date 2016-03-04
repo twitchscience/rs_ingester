@@ -7,9 +7,9 @@ import (
 	"github.com/cactus/go-statsd-client/statsd"
 )
 
+// InitStats sets up the statsd monitoring, with a noop connection if
+// STATSD_HOSTPORT is not set
 func InitStats(statsPrefix string) (stats statsd.Statter, err error) {
-	// Set up statsd monitoring
-	// - If the env is not set up we wil use a noop connection
 	statsdHostport := os.Getenv("STATSD_HOSTPORT")
 
 	if statsdHostport == "" {

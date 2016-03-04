@@ -9,77 +9,91 @@ import (
 	"github.com/zenazn/goji/web"
 )
 
-type ControlHandler struct {
-	cb    *ControlBackend
+// Handler is a handler for control
+type Handler struct {
+	cb    *Backend
 	stats statsd.Statter
 }
 
-type ControlError struct {
-	Error string
+// NewControlHandler instantiates a handler for control
+func NewControlHandler(ch *Backend, stats statsd.Statter) *Handler {
+	return &Handler{ch, stats}
 }
 
-func NewControlHandler(ch *ControlBackend, stats statsd.Statter) *ControlHandler {
-	return &ControlHandler{ch, stats}
-}
-
-// respondWithJsonError responds with a JSON error with the given error code. The format of the
+// respondWithJSONError responds with a JSON error with the given error code. The format of the
 // JSON error is {"Error": text}
 //	It's very likely that you want to return from the handler after calling
 //	this.
-func respondWithJsonError(w http.ResponseWriter, text string, responseCode int) {
-	js, err := json.Marshal(ControlError{text})
+func respondWithJSONError(w http.ResponseWriter, text string, responseCode int) {
+	js, err := json.Marshal(struct{ Error string }{text})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(responseCode)
-	w.Write(js)
+	_, err = w.Write(js)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 // ForceIngest forces ingest of a particular table. Takes a JSON POST containing the
 // table field, representing the name of the table to be ingested.
-func (ch *ControlHandler) ForceIngest(c web.C, w http.ResponseWriter, r *http.Request) {
+func (ch *Handler) ForceIngest(c web.C, w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	var tableArg struct {
 		Table string
 	}
 	err := decoder.Decode(&tableArg)
 	if err != nil {
-		respondWithJsonError(w, "Problem decoding JSON POST data.", http.StatusBadRequest)
+		respondWithJSONError(w, "Problem decoding JSON POST data.", http.StatusBadRequest)
 		return
 	}
 	table := tableArg.Table
 
 	if len(table) <= 0 {
-		respondWithJsonError(w, "Table name empty.", http.StatusBadRequest)
+		respondWithJSONError(w, "Table name empty.", http.StatusBadRequest)
 		return
 	}
 
 	err = ch.cb.ForceIngest(table)
 	if err != nil {
-		respondWithJsonError(w, err.Error(), http.StatusInternalServerError)
+		respondWithJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	ch.stats.Inc("force_ingest."+table, 1, 1.0) // TODO: include table name?
+	err = ch.stats.Inc("force_ingest."+table, 1, 1.0)
+	if err != nil {
+		log.Printf("Error sending force_ingest message to statsd")
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (ch *ControlHandler) GetPendingTables(c web.C, w http.ResponseWriter, r *http.Request) {
+// GetPendingTables responds with the list of tables, or events, that are up to
+// be loaded
+func (ch *Handler) GetPendingTables(c web.C, w http.ResponseWriter, r *http.Request) {
 	pendingTables, err := ch.cb.GetPendingTables()
 	if err != nil {
-		respondWithJsonError(w, err.Error(), http.StatusInternalServerError)
+		respondWithJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	js, err := json.Marshal(pendingTables)
+	js, err := json.Marshal(struct{ Events []Event }{pendingTables})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	ch.stats.Inc("get_pending_tables", 1, 1.0)
+	err = ch.stats.Inc("get_pending_tables", 1, 1.0)
+	if err != nil {
+		log.Printf("Error sending get_pending_tables message to statsd")
+	}
 	log.Printf("Retrieved pending tables: %v.\n", pendingTables)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(js)
+	_, err = w.Write(js)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }

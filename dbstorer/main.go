@@ -22,15 +22,14 @@ import (
 )
 
 var (
-	env            = environment.GetCloudEnv()
-	pgConfig       metadata.PGConfig
-	loadAgeSeconds int
-	sqsPollWait    time.Duration
-	statsPrefix    string
+	env         = environment.GetCloudEnv()
+	pgConfig    metadata.PGConfig
+	sqsPollWait time.Duration
+	statsPrefix string
 )
 
-type RDSPipeHandler struct {
-	MetadataStorer metadata.MetadataStorer
+type rdsPipeHandler struct {
+	MetadataStorer metadata.Storer
 	Signer         scoop_protocol.ScoopSigner
 	Statter        statsd.Statter
 }
@@ -61,8 +60,11 @@ func main() {
 	}()
 
 	postgresBackend, err := metadata.NewPostgresStorer(&pgConfig)
+	if err != nil {
+		log.Fatalf("Error initializing PostgresStorer: %s", err)
+	}
 
-	listener := StartWorker(&listener.SQSAddr{
+	listener := startWorker(&listener.SQSAddr{
 		Region:    aws.USWest2,
 		QueueName: "spade-compactor-" + env,
 		Auth:      auth,
@@ -82,8 +84,8 @@ func main() {
 	<-wait
 }
 
-func StartWorker(addr *listener.SQSAddr, stats statsd.Statter, b metadata.MetadataStorer) *listener.SQSListener {
-	ret := listener.BuildSQSListener(addr, &RDSPipeHandler{
+func startWorker(addr *listener.SQSAddr, stats statsd.Statter, b metadata.Storer) *listener.SQSListener {
+	ret := listener.BuildSQSListener(addr, &rdsPipeHandler{
 		MetadataStorer: b,
 		Signer:         scoop_protocol.GetScoopSigner(),
 		Statter:        stats,
@@ -92,7 +94,7 @@ func StartWorker(addr *listener.SQSAddr, stats statsd.Statter, b metadata.Metada
 	return ret
 }
 
-func (i *RDSPipeHandler) Handle(msg *sqs.Message) error {
+func (i *rdsPipeHandler) Handle(msg *sqs.Message) error {
 	log.Printf("Got %s;%s\n", msg.Body, msg.MessageId)
 
 	req, err := i.Signer.GetRowCopyRequest(strings.NewReader(msg.Body))
