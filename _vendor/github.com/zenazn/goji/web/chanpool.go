@@ -10,7 +10,7 @@ const cPoolSize = 32
 type cPool chan *cStack
 
 func makeCPool() *cPool {
-	p := make(cPool, cPoolSize)
+	var p cPool = make(chan *cStack, cPoolSize)
 	return &p
 }
 

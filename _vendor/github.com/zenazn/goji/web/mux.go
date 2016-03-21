@@ -56,7 +56,7 @@ func (m *Mux) ServeHTTPC(c C, w http.ResponseWriter, r *http.Request) {
 
 // Middleware Stack functions
 
-// Use appends the given middleware to the middleware stack.
+// Append the given middleware to the middleware stack.
 //
 // No attempt is made to enforce the uniqueness of middlewares. It is illegal to
 // call this function concurrently with active requests.
@@ -64,9 +64,8 @@ func (m *Mux) Use(middleware MiddlewareType) {
 	m.ms.Use(middleware)
 }
 
-// Insert inserts the given middleware immediately before a given existing
-// middleware in the stack. Returns an error if "before" cannot be found in the
-// current stack.
+// Insert the given middleware immediately before a given existing middleware in
+// the stack. Returns an error if "before" cannot be found in the current stack.
 //
 // No attempt is made to enforce the uniqueness of middlewares. If the insertion
 // point is ambiguous, the first (outermost) one is chosen. It is illegal to
@@ -75,8 +74,8 @@ func (m *Mux) Insert(middleware, before MiddlewareType) error {
 	return m.ms.Insert(middleware, before)
 }
 
-// Abandon removes the given middleware from the middleware stack. Returns an
-// error if no such middleware can be found.
+// Remove the given middleware from the middleware stack. Returns an error if
+// no such middleware can be found.
 //
 // If the name of the middleware to delete is ambiguous, the first (outermost)
 // one is chosen. It is illegal to call this function concurrently with active
@@ -87,42 +86,9 @@ func (m *Mux) Abandon(middleware MiddlewareType) error {
 
 // Router functions
 
-type routerMiddleware struct {
-	m *Mux
-	c *C
-	h http.Handler
-}
-
-func (rm routerMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if rm.c.Env == nil {
-		rm.c.Env = make(map[interface{}]interface{}, 1)
-	}
-	rm.c.Env[MatchKey] = rm.m.rt.getMatch(rm.c, w, r)
-	rm.h.ServeHTTP(w, r)
-}
-
 /*
-Router is a middleware that performs routing and stores the resulting Match in
-Goji's environment. If a routing Match is present at the end of the middleware
-stack, that Match is used instead of re-routing.
-
-This middleware is especially useful to create post-routing middleware, e.g. a
-request logger which prints which pattern or handler was selected, or an
-authentication middleware which only applies to certain routes.
-
-If you use nested Muxes with explicit routing, you should be aware that the
-explicit routing information set by an outer Mux can be picked up by an inner
-Mux, inadvertently causing an infinite routing loop. If you use both explicit
-routing and nested Muxes, you should be sure to unset MatchKey before the inner
-Mux performs routing (or attach a Router to the inner Mux as well).
-*/
-func (m *Mux) Router(c *C, h http.Handler) http.Handler {
-	return routerMiddleware{m, c, h}
-}
-
-/*
-Handle dispatches to the given handler when the pattern matches, regardless of
-HTTP method.
+Dispatch to the given handler when the pattern matches, regardless of HTTP
+method.
 
 This method is commonly used to implement sub-routing: an admin application, for
 instance, can expose a single handler that is attached to the main Mux by
@@ -135,20 +101,20 @@ func (m *Mux) Handle(pattern PatternType, handler HandlerType) {
 	m.rt.handleUntyped(pattern, mALL, handler)
 }
 
-// Connect dispatches to the given handler when the pattern matches and the HTTP
-// method is CONNECT.
+// Dispatch to the given handler when the pattern matches and the HTTP method is
+// CONNECT.
 func (m *Mux) Connect(pattern PatternType, handler HandlerType) {
 	m.rt.handleUntyped(pattern, mCONNECT, handler)
 }
 
-// Delete dispatches to the given handler when the pattern matches and the HTTP
-// method is DELETE.
+// Dispatch to the given handler when the pattern matches and the HTTP method is
+// DELETE.
 func (m *Mux) Delete(pattern PatternType, handler HandlerType) {
 	m.rt.handleUntyped(pattern, mDELETE, handler)
 }
 
-// Get dispatches to the given handler when the pattern matches and the HTTP
-// method is GET.
+// Dispatch to the given handler when the pattern matches and the HTTP method is
+// GET.
 //
 // All GET handlers also transparently serve HEAD requests, since net/http will
 // take care of all the fiddly bits for you. If you wish to provide an alternate
@@ -158,43 +124,43 @@ func (m *Mux) Get(pattern PatternType, handler HandlerType) {
 	m.rt.handleUntyped(pattern, mGET|mHEAD, handler)
 }
 
-// Head dispatches to the given handler when the pattern matches and the HTTP
-// method is HEAD.
+// Dispatch to the given handler when the pattern matches and the HTTP method is
+// HEAD.
 func (m *Mux) Head(pattern PatternType, handler HandlerType) {
 	m.rt.handleUntyped(pattern, mHEAD, handler)
 }
 
-// Options dispatches to the given handler when the pattern matches and the HTTP
-// method is OPTIONS.
+// Dispatch to the given handler when the pattern matches and the HTTP method is
+// OPTIONS.
 func (m *Mux) Options(pattern PatternType, handler HandlerType) {
 	m.rt.handleUntyped(pattern, mOPTIONS, handler)
 }
 
-// Patch dispatches to the given handler when the pattern matches and the HTTP
-// method is PATCH.
+// Dispatch to the given handler when the pattern matches and the HTTP method is
+// PATCH.
 func (m *Mux) Patch(pattern PatternType, handler HandlerType) {
 	m.rt.handleUntyped(pattern, mPATCH, handler)
 }
 
-// Post dispatches to the given handler when the pattern matches and the HTTP
-// method is POST.
+// Dispatch to the given handler when the pattern matches and the HTTP method is
+// POST.
 func (m *Mux) Post(pattern PatternType, handler HandlerType) {
 	m.rt.handleUntyped(pattern, mPOST, handler)
 }
 
-// Put dispatches to the given handler when the pattern matches and the HTTP
-// method is PUT.
+// Dispatch to the given handler when the pattern matches and the HTTP method is
+// PUT.
 func (m *Mux) Put(pattern PatternType, handler HandlerType) {
 	m.rt.handleUntyped(pattern, mPUT, handler)
 }
 
-// Trace dispatches to the given handler when the pattern matches and the HTTP
-// method is TRACE.
+// Dispatch to the given handler when the pattern matches and the HTTP method is
+// TRACE.
 func (m *Mux) Trace(pattern PatternType, handler HandlerType) {
 	m.rt.handleUntyped(pattern, mTRACE, handler)
 }
 
-// NotFound sets the fallback (i.e., 404) handler for this mux.
+// Set the fallback (i.e., 404) handler for this mux.
 //
 // As a convenience, the context environment variable "goji.web.validMethods"
 // (also available as the constant ValidMethodsKey) will be set to the list of
@@ -204,9 +170,9 @@ func (m *Mux) NotFound(handler HandlerType) {
 	m.rt.notFound = parseHandler(handler)
 }
 
-// Compile compiles the list of routes into bytecode. This only needs to be done
-// once after all the routes have been added, and will be called automatically
-// for you (at some performance cost on the first request) if you do not call it
+// Compile the list of routes into bytecode. This only needs to be done once
+// after all the routes have been added, and will be called automatically for
+// you (at some performance cost on the first request) if you do not call it
 // explicitly.
 func (m *Mux) Compile() {
 	m.rt.compile()

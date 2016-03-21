@@ -4,6 +4,10 @@ import (
 	"reflect"
 )
 
+func isFunc(fn interface{}) bool {
+	return reflect.ValueOf(fn).Kind() == reflect.Func
+}
+
 /*
 This is more than a little sketchtacular. Go's rules for function pointer
 equality are pretty restrictive: nil function pointers always compare equal, and
@@ -21,10 +25,12 @@ purposes.
 If you're curious, you can read more about the representation of functions here:
 http://golang.org/s/go11func
 We're in effect comparing the pointers of the indirect layer.
-
-This function also works on non-function values.
 */
 func funcEqual(a, b interface{}) bool {
+	if !isFunc(a) || !isFunc(b) {
+		panic("funcEqual: type error!")
+	}
+
 	av := reflect.ValueOf(&a).Elem()
 	bv := reflect.ValueOf(&b).Elem()
 

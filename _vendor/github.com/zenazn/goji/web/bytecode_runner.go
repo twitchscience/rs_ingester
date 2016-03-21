@@ -80,4 +80,6 @@ func (rm routeMachine) route(c *C, w http.ResponseWriter, r *http.Request) (meth
 			i++
 		}
 	}
+
+	return methods, nil
 }

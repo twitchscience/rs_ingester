@@ -13,10 +13,10 @@ source conf.sh
 exec ./rs_ingester \
   -n_workers 5 \
   -statsPrefix="${CLOUD_APP}.${CLOUD_DEV_PHASE:-${CLOUD_ENVIRONMENT}}.${EC2_REGION}.${CLOUD_AUTO_SCALE_GROUP##*-}" \
-  -scoopURL="${SCOOP_URL}" \
   -databaseURL="${INGESTER_DB_URL}" \
   -manifestBucketPrefix="rsingester-manifests" \
   -loadCountTrigger="${LOAD_COUNT_TRIGGER}" \
   -loadAgeSeconds="${LOAD_AGE_SECONDS}" \
   -tableWhitelist="${TABLE_WHITELIST}" \
-  -no_work_delay="${NO_WORK_DELAY}"
+  -no_work_delay="${NO_WORK_DELAY}" \
+  -rsURL="${RS_URL}"

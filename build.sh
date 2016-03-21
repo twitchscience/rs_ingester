@@ -19,7 +19,7 @@ export GOOS=linux
 
 go test -v ./...
 go install -v ./...
-gometalinter ./... --deadline=30s --disable=gocyclo
+gometalinter ./... --deadline=30s --disable=gocyclo --disable=dupl
 
 packer                                          \
      build -machine-readable                    \

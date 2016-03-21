@@ -15,5 +15,5 @@ type LoadError interface {
 type Loader interface {
 	LoadManifest(manifest *metadata.LoadManifest) LoadError
 	CheckLoad(manifestUUID string) (scoop_protocol.LoadStatus, error)
-	PingScoopHealthcheck() (*scoop_protocol.ScoopHealthCheck, error)
+	HealthCheck() error
 }

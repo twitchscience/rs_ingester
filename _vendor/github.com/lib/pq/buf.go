@@ -21,7 +21,6 @@ func (b *readBuf) oid() (n oid.Oid) {
 	return
 }
 
-// N.B: this is actually an unsigned 16-bit integer, unlike int32
 func (b *readBuf) int16() (n int) {
 	n = int(binary.BigEndian.Uint16(*b))
 	*b = (*b)[2:]

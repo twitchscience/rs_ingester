@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 	"github.com/zenazn/goji/web"
 )
 
@@ -15,21 +14,20 @@ type Handler struct {
 
 // IngesterHealthStatus represents the health status of scoop and the ingester
 type IngesterHealthStatus struct {
-	ScoopHealthCheckStatus    *scoop_protocol.ScoopHealthCheck
-	ScoopHealthCheckConnError *string
-	IngesterDBConnError       *string
+	RedshiftDBConnError *string
+	IngesterDBConnError *string
 }
 
-// NewHealthCheckHandler creates a handler for the health check
-func NewHealthCheckHandler(hcb *Backend) *Handler {
+// NewHandler creates a handler for the health check
+func NewHandler(hcb *Backend) *Handler {
 	return &Handler{hcb}
 }
 
 // HealthCheck responds with the health of the ingester
 func (h *Handler) HealthCheck(c web.C, w http.ResponseWriter, r *http.Request) {
-	ingesterStatus, responseCode := h.hcb.GetHealthStatus()
+	ingesterHealthStatus, responseCode := h.hcb.HealthStatus()
 
-	js, err := json.Marshal(ingesterStatus)
+	js, err := json.Marshal(ingesterHealthStatus)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
