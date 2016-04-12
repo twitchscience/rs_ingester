@@ -10,10 +10,10 @@ CREATE TABLE manifest (
 
 -- Individual files from the pipeline
 CREATE TABLE tsv (
-    id          BIGSERIAL PRIMARY KEY,                 -- a unique ID for this TSV
-    tablename   VARCHAR,                               -- the table name we're loading into
-    keyname     VARCHAR,                               -- the s3 key of the TSV
-    version     INT,                                   -- the schema version for the table batch
-    ts          TIMESTAMP,                             -- the time the SQS message was recieved
-    manifest    UUID REFERENCES manifest(uuid)         -- if present, this TSV is in a manifest
+    id              BIGSERIAL PRIMARY KEY,          -- a unique ID for this TSV
+    tablename       VARCHAR,                        -- the table name we're loading into
+    keyname         VARCHAR,                        -- the s3 key of the TSV
+    tableversion    INT,                            -- the schema version for the table batch
+    ts              TIMESTAMP,                      -- the time the SQS message was recieved
+    manifest_uuid   UUID REFERENCES manifest(uuid)  -- if present, this TSV is in a manifest
 );
