@@ -69,6 +69,11 @@
       "destination": "/opt/science/{{user `project`}}/nginx.conf"
     },
     {
+      "type": "file",
+      "source": "init_db/init.sql",
+      "destination": "/opt/science/{{user `project`}}/init.sql"
+    },
+    {
       "type": "shell",
       "inline":
       [
