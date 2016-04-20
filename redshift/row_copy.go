@@ -7,15 +7,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AdRoll/goamz/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/lib/pq"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
 
 const (
 	// need to provide creds, and lib/pq barfs on paramater insertion in copy commands
-	copyCommand       = `COPY %s FROM %s WITH CREDENTIALS '%s' %s`
-	copyCommandSearch = `COPY %% FROM '%s' %%`
+	copyCommand             = `COPY %s FROM %s WITH CREDENTIALS '%s' %s`
+	copyCommandSearch       = `COPY %% FROM '%s' %%`
+	credentialExpiryTimeout = 2 * time.Minute
 )
 
 var (
@@ -48,6 +49,7 @@ var (
 		"trimblanks;"},
 		" ",
 	)
+	lastCredentialExpiry = time.Now()
 )
 
 //RowCopyRequest is the redshift packages representation of the row copy object for running a row copy
@@ -163,25 +165,30 @@ func CheckLoadStatus(t RowQueryer, manifestURL string) (scoop_protocol.LoadStatu
 }
 
 //CopyCredentials refreshes the redshift aws auth token aggressively
-func CopyCredentials(awsCredentials *aws.Auth) (accessCreds string) {
+func CopyCredentials(credentials *credentials.Credentials) (accessCreds string) {
 	// Agressively refresh the token
-	if awsCredentials.Expiration().Sub(time.Now()) <= 2*time.Hour {
-		*awsCredentials, _ = aws.GetAuth("", "", "", time.Time{})
+	if time.Now().Sub(lastCredentialExpiry) > credentialExpiryTimeout {
+		credentials.Expire()
 	}
 
-	tempToken := awsCredentials.Token()
-	if tempToken == "" {
+	v, e := credentials.Get()
+	if e != nil {
+		log.Println("Failed to retrieve credentials!")
+		return ""
+	}
+
+	if len(v.SessionToken) == 0 {
 		accessCreds = fmt.Sprintf(
 			"aws_access_key_id=%s;aws_secret_access_key=%s",
-			awsCredentials.AccessKey,
-			awsCredentials.SecretKey,
+			v.AccessKeyID,
+			v.SecretAccessKey,
 		)
 	} else {
 		accessCreds = fmt.Sprintf(
 			"aws_access_key_id=%s;aws_secret_access_key=%s;token=%s",
-			awsCredentials.AccessKey,
-			awsCredentials.SecretKey,
-			tempToken,
+			v.AccessKeyID,
+			v.SecretAccessKey,
+			v.SessionToken,
 		)
 	}
 	return

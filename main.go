@@ -12,6 +12,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager/s3manageriface"
 	"github.com/cactus/go-statsd-client/statsd"
 	"github.com/twitchscience/rs_ingester/control"
 
@@ -27,13 +30,13 @@ const (
 )
 
 var (
-	poolSize             int
-	statsPrefix          string
-	manifestBucketPrefix string
-	rsURL                string
-	pgConfig             metadata.PGConfig
-	loadAgeSeconds       int
-	workerGroup          sync.WaitGroup
+	poolSize       int
+	statsPrefix    string
+	manifestBucket string
+	rsURL          string
+	pgConfig       metadata.PGConfig
+	loadAgeSeconds int
+	workerGroup    sync.WaitGroup
 )
 
 type loadWorker struct {
@@ -60,16 +63,16 @@ func (i *loadWorker) Work() {
 	workerGroup.Done()
 }
 
-func startWorkers(b metadata.Backend, stats statsd.Statter, rsBackend *backend.RedshiftBackend) ([]loadWorker, error) {
+func startWorkers(s3Uploader s3manageriface.UploaderAPI, b metadata.Backend, stats statsd.Statter, rsBackend *backend.RedshiftBackend) ([]loadWorker, error) {
 	workers := make([]loadWorker, poolSize)
 	for i := 0; i < poolSize; i++ {
-		loadclient, err := loadclient.NewRSLoader(rsBackend, manifestBucketPrefix, stats)
+		loadclient, err := loadclient.NewRSLoader(s3Uploader, rsBackend, manifestBucket, stats)
 		if err != nil {
 			return workers, err
 		}
 		workers[i] = loadWorker{MetadataBackend: b, Loader: loadclient}
-		go workers[i].Work()
 		workerGroup.Add(1)
+		go workers[i].Work()
 	}
 	return workers, nil
 }
@@ -77,7 +80,7 @@ func startWorkers(b metadata.Backend, stats statsd.Statter, rsBackend *backend.R
 func init() {
 	flag.StringVar(&statsPrefix, "statsPrefix", "ingester", "the prefix to statsd")
 	flag.StringVar(&pgConfig.DatabaseURL, "databaseURL", "", "Postgres-scheme url for the RDS instance")
-	flag.StringVar(&manifestBucketPrefix, "manifestBucketPrefix", "", "Prefix for the S3 bucket for manifests. '-$CLOUD_ENVIRONMENT' will be appended for the actual bucket name")
+	flag.StringVar(&manifestBucket, "manifestBucket", "", "S3 bucket for manifests.")
 	flag.IntVar(&pgConfig.LoadCountTrigger, "loadCountTrigger", 5, "Number of queued loads before a load triggers")
 	flag.IntVar(&pgConfig.MaxConnections, "maxDBConnections", 5, "Number of database connections to open")
 	flag.StringVar(&pgConfig.TableWhitelist, "tableWhitelist", "", "If present, limits loads only to a comma-seperated list of tables")
@@ -95,14 +98,14 @@ func main() {
 	if err != nil {
 		log.Fatalln("Failed to setup statter", err)
 	}
-
-	rsBackend, err := backend.BuildRedshiftBackend(poolSize+healthCheckPoolSize, rsURL)
-
+	session := session.New()
+	s3Uploader := s3manager.NewUploader(session)
+	rsBackend, err := backend.BuildRedshiftBackend(session.Config.Credentials, poolSize+healthCheckPoolSize, rsURL)
 	if err != nil {
 		log.Fatalln("Failed to setup redshift connection", err)
 	}
 
-	rsConnection, err := loadclient.NewRSLoader(rsBackend, manifestBucketPrefix, stats)
+	rsConnection, err := loadclient.NewRSLoader(s3Uploader, rsBackend, manifestBucket, stats)
 	if err != nil {
 		log.Fatalln("Failed to setup Redshift loading client for postgres", err)
 	}
@@ -112,7 +115,7 @@ func main() {
 		log.Fatalln("Failed to setup postgres backend", err)
 	}
 
-	_, err = startWorkers(pgBackend, stats, rsBackend)
+	_, err = startWorkers(s3Uploader, pgBackend, stats, rsBackend)
 	if err != nil {
 		log.Fatalln("Failed to start workers", err)
 	}

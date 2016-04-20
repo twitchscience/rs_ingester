@@ -7,8 +7,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/AdRoll/goamz/aws"
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/twitchscience/rs_ingester/redshift"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
@@ -79,12 +79,11 @@ func BuildTestBackend() *TestBackend {
 		InboundRequests: make(chan redshift.RSRequest, 10),
 	}
 
-	// Ignore the error, we're still ok
-	awsAuth, _ := aws.GetAuth("", "", "", time.Time{})
+	session := session.New()
 
 	r := RedshiftBackend{
-		connection:     conn,
-		awsCredentials: &awsAuth,
+		connection:  conn,
+		credentials: session.Config.Credentials,
 	}
 	return &TestBackend{
 		simulatedBackend: r,

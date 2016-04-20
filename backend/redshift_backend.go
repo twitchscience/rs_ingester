@@ -7,25 +7,19 @@ import (
 	"log"
 	"time"
 
-	"github.com/AdRoll/goamz/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/twitchscience/rs_ingester/redshift"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
 
 //RedshiftBackend is the struct that holds the RSConnection pool and where backend operations are done from
 type RedshiftBackend struct {
-	connection     *redshift.RSConnection
-	awsCredentials *aws.Auth
+	connection  *redshift.RSConnection
+	credentials *credentials.Credentials
 }
 
 //BuildRedshiftBackend builds a new redshift backend by also creating a new rsConnection
-func BuildRedshiftBackend(poolSize int, rsURL string) (*RedshiftBackend, error) {
-
-	awsAuth, err := aws.GetAuth("", "", "", time.Time{})
-	if err != nil {
-		return nil, err
-	}
-
+func BuildRedshiftBackend(credentials *credentials.Credentials, poolSize int, rsURL string) (*RedshiftBackend, error) {
 	conn, err := redshift.BuildRSConnection(rsURL, poolSize)
 	if err != nil {
 		return nil, err
@@ -34,8 +28,8 @@ func BuildRedshiftBackend(poolSize int, rsURL string) (*RedshiftBackend, error) 
 		go conn.Listen()
 	}
 	return &RedshiftBackend{
-		connection:     conn,
-		awsCredentials: &awsAuth,
+		connection:  conn,
+		credentials: credentials,
 	}, nil
 }
 
@@ -64,7 +58,7 @@ func (r *RedshiftBackend) Copy(rc *scoop_protocol.RowCopyRequest) error {
 		BuiltOn:     time.Now(),
 		Name:        rc.TableName,
 		Key:         rc.KeyName,
-		Credentials: redshift.CopyCredentials(r.awsCredentials),
+		Credentials: redshift.CopyCredentials(r.credentials),
 	}.TxExec)
 }
 
@@ -74,7 +68,7 @@ func (r *RedshiftBackend) ManifestCopy(rc *scoop_protocol.ManifestRowCopyRequest
 		BuiltOn:     time.Now(),
 		Name:        rc.TableName,
 		ManifestURL: rc.ManifestURL,
-		Credentials: redshift.CopyCredentials(r.awsCredentials),
+		Credentials: redshift.CopyCredentials(r.credentials),
 	}.TxExec)
 }
 

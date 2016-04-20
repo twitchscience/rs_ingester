@@ -11,10 +11,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/AdRoll/goamz/aws"
-	"github.com/AdRoll/goamz/sqs"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/sqs"
+	"github.com/aws/aws-sdk-go/service/sqs/sqsiface"
 	"github.com/cactus/go-statsd-client/statsd"
-	"github.com/twitchscience/aws_utils/environment"
 	"github.com/twitchscience/aws_utils/listener"
 	"github.com/twitchscience/rs_ingester/lib"
 	"github.com/twitchscience/rs_ingester/metadata"
@@ -22,10 +23,10 @@ import (
 )
 
 var (
-	env         = environment.GetCloudEnv()
-	pgConfig    metadata.PGConfig
-	sqsPollWait time.Duration
-	statsPrefix string
+	pgConfig     metadata.PGConfig
+	sqsPollWait  time.Duration
+	sqsQueueName string
+	statsPrefix  string
 )
 
 type rdsPipeHandler struct {
@@ -39,16 +40,13 @@ func init() {
 	flag.StringVar(&statsPrefix, "statsPrefix", "dbstorer", "the prefix to statsd")
 	flag.IntVar(&pgConfig.MaxConnections, "maxDBConnections", 5, "Max number of database connections to open")
 	flag.DurationVar(&sqsPollWait, "sqsPollWait", time.Second*30, "Number of seconds to wait between polling SQS")
+	flag.StringVar(&sqsQueueName, "sqsQueueName", "", "Name of sqs queue to list for events on")
 }
 
 func main() {
 	flag.Parse()
 
 	log.SetOutput(os.Stdout)
-	auth, err := aws.GetAuth("", "", "", time.Time{})
-	if err != nil {
-		log.Fatalln("Failed to recieve auth")
-	}
 
 	stats, err := lib.InitStats(statsPrefix)
 	if err != nil {
@@ -64,11 +62,10 @@ func main() {
 		log.Fatalf("Error initializing PostgresStorer: %s", err)
 	}
 
-	listener := startWorker(&listener.SQSAddr{
-		Region:    aws.USWest2,
-		QueueName: "spade-compactor-" + env,
-		Auth:      auth,
-	}, stats, postgresBackend)
+	session := session.New()
+	sqs := sqs.New(session)
+
+	listener := startWorker(sqs, sqsQueueName, stats, postgresBackend)
 
 	wait := make(chan struct{})
 
@@ -84,20 +81,23 @@ func main() {
 	<-wait
 }
 
-func startWorker(addr *listener.SQSAddr, stats statsd.Statter, b metadata.Storer) *listener.SQSListener {
-	ret := listener.BuildSQSListener(addr, &rdsPipeHandler{
-		MetadataStorer: b,
-		Signer:         scoop_protocol.GetScoopSigner(),
-		Statter:        stats,
-	}, sqsPollWait)
-	go ret.Listen()
+func startWorker(sqs sqsiface.SQSAPI, queue string, stats statsd.Statter, b metadata.Storer) *listener.SQSListener {
+	ret := listener.BuildSQSListener(
+		&rdsPipeHandler{
+			MetadataStorer: b,
+			Signer:         scoop_protocol.GetScoopSigner(),
+			Statter:        stats,
+		},
+		sqsPollWait,
+		sqs)
+	go ret.Listen(queue)
 	return ret
 }
 
 func (i *rdsPipeHandler) Handle(msg *sqs.Message) error {
-	log.Printf("Got %s;%s\n", msg.Body, msg.MessageId)
+	log.Printf("Got %s;%s\n", aws.StringValue(msg.Body), aws.StringValue(msg.MessageId))
 
-	req, err := i.Signer.GetRowCopyRequest(strings.NewReader(msg.Body))
+	req, err := i.Signer.GetRowCopyRequest(strings.NewReader(aws.StringValue(msg.Body)))
 	if err != nil {
 		return err
 	}
