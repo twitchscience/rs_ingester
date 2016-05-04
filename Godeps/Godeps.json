@@ -1,7 +1,7 @@
 {
 	"ImportPath": "github.com/twitchscience/rs_ingester",
 	"GoVersion": "go1.6",
-	"GodepVersion": "v58",
+	"GodepVersion": "v61",
 	"Packages": [
 		"./..."
 	],
@@ -181,11 +181,11 @@
 		},
 		{
 			"ImportPath": "github.com/twitchscience/aws_utils/common",
-			"Rev": "0c21813c7b121a0cc00dde6e701249f05c24a8e1"
+			"Rev": "d39958d2106d3a6ede848c540d2f0d13de8d6dd7"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/aws_utils/listener",
-			"Rev": "0c21813c7b121a0cc00dde6e701249f05c24a8e1"
+			"Rev": "d39958d2106d3a6ede848c540d2f0d13de8d6dd7"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/scoop_protocol/msg_signer",
