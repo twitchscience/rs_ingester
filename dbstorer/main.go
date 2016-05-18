@@ -23,10 +23,11 @@ import (
 )
 
 var (
-	pgConfig     metadata.PGConfig
-	sqsPollWait  time.Duration
-	sqsQueueName string
-	statsPrefix  string
+	pgConfig      metadata.PGConfig
+	sqsPollWait   time.Duration
+	sqsQueueName  string
+	statsPrefix   string
+	listenerCount int
 )
 
 type rdsPipeHandler struct {
@@ -41,6 +42,7 @@ func init() {
 	flag.IntVar(&pgConfig.MaxConnections, "maxDBConnections", 5, "Max number of database connections to open")
 	flag.DurationVar(&sqsPollWait, "sqsPollWait", time.Second*30, "Number of seconds to wait between polling SQS")
 	flag.StringVar(&sqsQueueName, "sqsQueueName", "", "Name of sqs queue to list for events on")
+	flag.IntVar(&listenerCount, "listenerCount", 1, "Number of sqs listeners to run")
 }
 
 func main() {
@@ -65,7 +67,10 @@ func main() {
 	session := session.New()
 	sqs := sqs.New(session)
 
-	listener := startWorker(sqs, sqsQueueName, stats, postgresBackend)
+	listeners := make([]*listener.SQSListener, listenerCount)
+	for i := 0; i < listenerCount; i++ {
+		listeners[i] = startWorker(sqs, sqsQueueName, stats, postgresBackend)
+	}
 
 	wait := make(chan struct{})
 
@@ -74,7 +79,9 @@ func main() {
 	go func() {
 		<-sigc
 		// Cause flush
-		listener.Close()
+		for i := 0; i < listenerCount; i++ {
+			listeners[i].Close()
+		}
 		close(wait)
 	}()
 
