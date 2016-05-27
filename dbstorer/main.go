@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -79,9 +80,15 @@ func main() {
 	go func() {
 		<-sigc
 		// Cause flush
+		var wg sync.WaitGroup
+		wg.Add(listenerCount)
 		for i := 0; i < listenerCount; i++ {
-			listeners[i].Close()
+			go func() {
+				defer wg.Done()
+				listeners[i].Close()
+			}()
 		}
+		wg.Wait()
 		close(wait)
 	}()
 
