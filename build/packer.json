@@ -74,6 +74,11 @@
       "destination": "/opt/science/{{user `project`}}/init.sql"
     },
     {
+      "type": "file",
+      "source": "build/config/cloudwatchlogs.conf",
+      "destination": "/opt/science/{{user `project`}}/cloudwatchlogs.conf"
+    },
+    {
       "type": "shell",
       "inline":
       [
@@ -84,7 +89,9 @@
         "sudo ln -s /opt/science/{{user `project`}}/nginx.conf /etc/nginx/sites-enabled/{{user `project`}}",
 
         "sudo chmod +x /opt/science/{{user `project`}}/bin/*",
-        "for f in /opt/science/{{user `project`}}/upstart/*.conf; do sudo ln -s $f /etc/init/$(basename $f); done"
+        "for f in /opt/science/{{user `project`}}/upstart/*.conf; do sudo ln -s $f /etc/init/$(basename $f); done",
+
+        "sudo mv /opt/science/{{user `project`}}/cloudwatchlogs.conf /var/awslogs/etc/config"
       ]
     }
   ]
