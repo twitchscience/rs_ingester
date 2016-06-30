@@ -75,6 +75,11 @@
     },
     {
       "type": "file",
+      "source": "init_db/ace_init.sql",
+      "destination": "/opt/science/{{user `project`}}/ace_init.sql"
+    },
+    {
+      "type": "file",
       "source": "build/config/cloudwatchlogs.conf",
       "destination": "/opt/science/{{user `project`}}/cloudwatchlogs.conf"
     },

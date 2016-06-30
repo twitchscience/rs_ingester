@@ -15,10 +15,13 @@ type Backend interface {
 	ManifestCopy(*scoop_protocol.ManifestRowCopyRequest) error
 	Query(*redshift.QueryRequest) ([]byte, error)
 	AllSchemas() ([]scoop_protocol.Config, error)
+	TableVersions() (map[string]int, error)
 	Schema(event string) (*scoop_protocol.Config, error)
 	NewUser(user, pw string) error
 	UpdatePassword(user, pw string) error
 	UpdateGroup(user, group string) error
 	MakeSuperuser(user string) error
 	EnforcePermissions() error
+	ApplyOperations(string, []scoop_protocol.Operation, int) error
+	CreateTable(string, []scoop_protocol.Operation) error
 }

@@ -9,12 +9,12 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"strings"
 	"time"
 
 	_ "github.com/lib/pq" // To register "postgres" with database/sql
 	"github.com/pborman/uuid"
 	"github.com/twitchscience/rs_ingester/constants"
+	"github.com/twitchscience/rs_ingester/versions"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
 
@@ -24,7 +24,6 @@ type PGConfig struct {
 	LoadAgeTrigger   time.Duration
 	LoadCountTrigger int
 	MaxConnections   int
-	TableWhitelist   string
 }
 
 type loadChecker interface {
@@ -38,17 +37,19 @@ type postgresBackend struct {
 	wait          chan struct{}
 	loadReady     chan *LoadManifest
 	gracefulClose chan struct{}
+	versions      versions.Getter
 }
 
 var (
-	errorNoLoads       = errors.New("No loads were found with that manifest id")
-	maxLoadRetryCount  int
-	dbRetryCount       int
-	noWorkDelay        time.Duration
-	errorRetryDelay    time.Duration
-	staleRetryDelay    time.Duration
-	staleRecoverDelay  time.Duration
-	staleCheckInterval time.Duration
+	errorNoLoads          = errors.New("No loads were found with that manifest id")
+	tableToLoadSearchSize = 50
+	maxLoadRetryCount     int
+	dbRetryCount          int
+	noWorkDelay           time.Duration
+	errorRetryDelay       time.Duration
+	staleRetryDelay       time.Duration
+	staleRecoverDelay     time.Duration
+	staleCheckInterval    time.Duration
 )
 
 func init() {
@@ -59,6 +60,23 @@ func init() {
 	flag.DurationVar(&staleRetryDelay, "stale_retry_delay", time.Hour*3, "Time to wait before checking up on a load")
 	flag.DurationVar(&staleRecoverDelay, "stale_recover_delay", time.Minute*30, "Time to check out a stale load (lock duration)")
 	flag.DurationVar(&staleCheckInterval, "stale_check_interval", time.Minute, "How often to check for stale loads")
+}
+
+// NewPostgresReader configures a new postgres backend for reading only
+func NewPostgresReader(cfg *PGConfig, versions versions.Getter) (Reader, error) {
+	b := &postgresBackend{
+		cfg:       cfg,
+		loadReady: nil,
+		wait:      make(chan struct{}),
+		versions:  versions,
+	}
+
+	err := b.connectBackendToDB()
+	if err != nil {
+		return nil, err
+	}
+
+	return b, nil
 }
 
 // NewPostgresStorer configures a new postgres backend for storing only
@@ -80,13 +98,14 @@ func NewPostgresStorer(cfg *PGConfig) (Storer, error) {
 // NewPostgresLoader configures a new postgres backend for loading (or storing)
 // At backend configuration, we set a max number of tsvs for a table
 // and max count of tsvs before a load is triggered.
-func NewPostgresLoader(cfg *PGConfig, lChecker loadChecker) (Backend, error) {
+func NewPostgresLoader(cfg *PGConfig, lChecker loadChecker, versions versions.Getter) (Backend, error) {
 	b := &postgresBackend{
 		cfg:           cfg,
 		loadChecker:   lChecker,
 		loadReady:     make(chan *LoadManifest),
 		wait:          make(chan struct{}),
 		gracefulClose: make(chan struct{}),
+		versions:      versions,
 	}
 
 	err := b.connectBackendToDB()
@@ -130,6 +149,33 @@ func (b *postgresBackend) LoadError(manifestUUID string, loadError string) {
 	if err != nil {
 		log.Printf("Error marking load %s as error and used all retries; final error: %s\n", manifestUUID, err.Error())
 	}
+}
+
+func (b *postgresBackend) Versions() (map[string]int, error) {
+	rows, err := b.db.Query(`SELECT tablename, MAX(tableversion) FROM tsv GROUP BY tablename;`)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		err = rows.Close()
+		if err != nil {
+			log.Printf("Error closing rows for versions: %s", err)
+		}
+	}()
+
+	ret := make(map[string]int)
+	for rows.Next() {
+		var table string
+		var version int
+		err = rows.Scan(&table, &version)
+		ret[table] = version
+
+		if err != nil {
+			return nil, fmt.Errorf("Got error fetching unloaded tsv versions: %v", err)
+		}
+	}
+	return ret, nil
 }
 
 // Close the backend; signals the loadready worker to end gracefully if it is running
@@ -198,7 +244,6 @@ func (b *postgresBackend) loadReadyWorker() {
 		})
 		if err != nil {
 			log.Printf("Error fetching manifest for load after %d tries. last error: %s", dbRetryCount, err)
-			continue // TODO: is continue right here?
 		}
 
 		sleepDelay := noWorkDelay
@@ -208,11 +253,11 @@ func (b *postgresBackend) loadReadyWorker() {
 		}
 
 		select {
+		case <-time.After(sleepDelay):
 		case <-b.wait:
 			close(b.loadReady)
 			close(b.gracefulClose)
 			return
-		case <-time.After(sleepDelay):
 		}
 	}
 }
@@ -337,7 +382,7 @@ func staleLoadMetadata(tx *sql.Tx) (loadUUID string, lastError sql.NullString, e
 	defer func() {
 		err = rows.Close()
 		if err != nil {
-			log.Printf("Error closing rows: %s", err)
+			log.Printf("Error closing rows for stale load metadata: %s", err)
 		}
 	}()
 
@@ -383,6 +428,49 @@ func (b *postgresBackend) PingDB() error {
 	return nil
 }
 
+func (b *postgresBackend) findTableVersionToLoad(tx *sql.Tx) (string, int, error) {
+	rows, err := tx.Query(fmt.Sprintf(`
+SELECT tablename, tableversion FROM
+	(SELECT tablename, tableversion, min(ts) AS oldest, count(*) AS cnt
+		FROM %s WHERE manifest_uuid IS NULL
+		GROUP BY tablename, tableversion) a
+WHERE (cnt > $1 OR oldest < $2)
+ORDER BY oldest ASC
+LIMIT $3
+`, constants.TsvTable),
+		b.cfg.LoadCountTrigger,
+		time.Now().In(time.UTC).Add(-b.cfg.LoadAgeTrigger),
+		tableToLoadSearchSize,
+	)
+	if err != nil {
+		return "", -1, fmt.Errorf("Error finding potential tables to load: %v", err)
+	}
+
+	defer func() {
+		err = rows.Close()
+		if err != nil {
+			log.Printf("Error closing rows for findTableVersionToLoad: %s", err)
+		}
+	}()
+
+	var table string
+	var version int
+	found := false
+	for rows.Next() && !found {
+		if err = rows.Scan(&table, &version); err != nil {
+			return "", -1, fmt.Errorf("Error parsing rows when looking for potential tables to load: %v", err)
+		}
+		currentVersion, exists := b.versions.Get(table)
+		if exists && version <= currentVersion {
+			found = true
+		}
+	}
+	if !found {
+		return "", -1, fmt.Errorf("Searched %d (table, version) pairs to load and found none appropriate.", tableToLoadSearchSize)
+	}
+	return table, version, nil
+}
+
 func (b *postgresBackend) fetchLoad() (*LoadManifest, error) {
 	tx, err := b.db.Begin()
 	if err != nil {
@@ -401,33 +489,24 @@ func (b *postgresBackend) fetchLoad() (*LoadManifest, error) {
                       VALUES ($1, $2)
                      `, manifestUUID, retryTs)
 	if err != nil {
-		log.Println("Error creating "+constants.ManifestTable, err)
+		log.Println("Error inserting into "+constants.ManifestTable, err)
 		return nil, rollbackAndError(tx, err)
 	}
 
-	tableWhitelistClause := ""
-
-	if strings.Trim(b.cfg.TableWhitelist, "\t\n ") != "" {
-		tableWhitelistClause = " AND tablename IN ('" + strings.Replace(b.cfg.TableWhitelist, ",", "', '", -1) + "')"
+	table, version, err := b.findTableVersionToLoad(tx)
+	if err != nil {
+		return nil, rollbackAndError(tx, err)
 	}
 
 	_, err = tx.Exec(
 		`UPDATE `+constants.TsvTable+` SET manifest_uuid = $1
-         WHERE tablename IN
-         (SELECT tablename FROM
-            (SELECT tablename, min(ts) AS oldest, count(*) AS cnt
-             FROM `+constants.TsvTable+` WHERE manifest_uuid IS NULL
-             GROUP BY tablename) a
-          WHERE (cnt > $2 OR oldest < $3)
-          `+tableWhitelistClause+`
-          ORDER BY oldest
-          LIMIT 1
-          )
+         WHERE tablename = $2
+		 AND tableversion <= $3
          AND manifest_uuid IS NULL
         `,
 		manifestUUID,
-		b.cfg.LoadCountTrigger,
-		time.Now().In(time.UTC).Add(-b.cfg.LoadAgeTrigger),
+		table,
+		version,
 	)
 
 	if err != nil {
@@ -457,14 +536,14 @@ func getLoadManifest(tx *sql.Tx, manifestUUID string) (*LoadManifest, error) {
 	defer func() {
 		err = rows.Close()
 		if err != nil {
-			log.Printf("Error closing rows: %s", err)
+			log.Printf("Error closing rows for load manifest: %s", err)
 		}
 	}()
 	for rows.Next() {
 		var load Load
 		err := rows.Scan(&load.KeyName, &load.TableName)
 		if err != nil {
-			log.Println("Scan threw an error!")
+			log.Printf("Scan threw an error: %v", err)
 			return nil, err
 		}
 

@@ -16,7 +16,11 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager/s3manageriface"
 	"github.com/cactus/go-statsd-client/statsd"
+	"github.com/twitchscience/rs_ingester/blueprint"
 	"github.com/twitchscience/rs_ingester/control"
+	"github.com/twitchscience/rs_ingester/migrator"
+	"github.com/twitchscience/rs_ingester/scoop"
+	"github.com/twitchscience/rs_ingester/versions"
 
 	"github.com/twitchscience/rs_ingester/backend"
 	"github.com/twitchscience/rs_ingester/healthcheck"
@@ -30,13 +34,16 @@ const (
 )
 
 var (
-	poolSize       int
-	statsPrefix    string
-	manifestBucket string
-	rsURL          string
-	pgConfig       metadata.PGConfig
-	loadAgeSeconds int
-	workerGroup    sync.WaitGroup
+	poolSize           int
+	statsPrefix        string
+	manifestBucket     string
+	rsURL              string
+	blueprintHost      string
+	scoopURL           string
+	pgConfig           metadata.PGConfig
+	loadAgeSeconds     int
+	workerGroup        sync.WaitGroup
+	migratorPollPeriod time.Duration
 )
 
 type loadWorker struct {
@@ -63,10 +70,10 @@ func (i *loadWorker) Work() {
 	workerGroup.Done()
 }
 
-func startWorkers(s3Uploader s3manageriface.UploaderAPI, b metadata.Backend, stats statsd.Statter, rsBackend *backend.RedshiftBackend) ([]loadWorker, error) {
+func startWorkers(s3Uploader s3manageriface.UploaderAPI, b metadata.Backend, stats statsd.Statter, aceBackend *backend.RedshiftBackend) ([]loadWorker, error) {
 	workers := make([]loadWorker, poolSize)
 	for i := 0; i < poolSize; i++ {
-		loadclient, err := loadclient.NewRSLoader(s3Uploader, rsBackend, manifestBucket, stats)
+		loadclient, err := loadclient.NewRSLoader(s3Uploader, aceBackend, manifestBucket, stats)
 		if err != nil {
 			return workers, err
 		}
@@ -78,14 +85,16 @@ func startWorkers(s3Uploader s3manageriface.UploaderAPI, b metadata.Backend, sta
 }
 
 func init() {
+	flag.DurationVar(&migratorPollPeriod, "migratorPollPeriod", time.Minute, "the period betwen each poll the migrator does of ingesterdb for new versions to migrate to")
 	flag.StringVar(&statsPrefix, "statsPrefix", "ingester", "the prefix to statsd")
 	flag.StringVar(&pgConfig.DatabaseURL, "databaseURL", "", "Postgres-scheme url for the RDS instance")
 	flag.StringVar(&manifestBucket, "manifestBucket", "", "S3 bucket for manifests.")
 	flag.IntVar(&pgConfig.LoadCountTrigger, "loadCountTrigger", 5, "Number of queued loads before a load triggers")
 	flag.IntVar(&pgConfig.MaxConnections, "maxDBConnections", 5, "Number of database connections to open")
-	flag.StringVar(&pgConfig.TableWhitelist, "tableWhitelist", "", "If present, limits loads only to a comma-seperated list of tables")
 	flag.IntVar(&loadAgeSeconds, "loadAgeSeconds", 1800, "Max age of queued load before it triggers")
-	flag.IntVar(&poolSize, "n_workers", 5, "Number of load workers and therefore redshift connections")
+	flag.IntVar(&poolSize, "n_workers", 5, "Number of load workers and therefore redshift connections. Set to 0 to turn off ingests (COPYs).")
+	flag.StringVar(&blueprintHost, "blueprint_host", "", "Host name (and optionally :port) for communicating with blueprint")
+	flag.StringVar(&scoopURL, "scoopURL", "", "Base url of scoop (protocol and host)")
 	flag.StringVar(&rsURL, "rsURL", "", "URL for Redshift")
 }
 
@@ -100,27 +109,46 @@ func main() {
 	}
 	session := session.New()
 	s3Uploader := s3manager.NewUploader(session)
-	rsBackend, err := backend.BuildRedshiftBackend(session.Config.Credentials, poolSize+healthCheckPoolSize, rsURL)
+	aceBackend, err := backend.BuildRedshiftBackend(session.Config.Credentials, poolSize+healthCheckPoolSize, rsURL)
 	if err != nil {
 		log.Fatalln("Failed to setup redshift connection", err)
 	}
 
-	rsConnection, err := loadclient.NewRSLoader(s3Uploader, rsBackend, manifestBucket, stats)
+	rsConnection, err := loadclient.NewRSLoader(s3Uploader, aceBackend, manifestBucket, stats)
 	if err != nil {
 		log.Fatalln("Failed to setup Redshift loading client for postgres", err)
 	}
 
-	pgBackend, err := metadata.NewPostgresLoader(&pgConfig, rsConnection)
+	initVersions, err := aceBackend.TableVersions()
 	if err != nil {
-		log.Fatalln("Failed to setup postgres backend", err)
+		log.Fatalf("Failed initialization of table version cache: %v", err)
+	}
+	tableVersions := versions.New(initVersions)
+
+	var metaBackend metadata.Backend
+
+	if poolSize > 0 {
+		metaBackend, err = metadata.NewPostgresLoader(&pgConfig, rsConnection, tableVersions)
+		if err != nil {
+			log.Fatalln("Failed to setup postgres backend", err)
+		}
+
+		_, err = startWorkers(s3Uploader, metaBackend, stats, aceBackend)
+		if err != nil {
+			log.Fatalln("Failed to start workers", err)
+		}
 	}
 
-	_, err = startWorkers(s3Uploader, pgBackend, stats, rsBackend)
+	metaReader, err := metadata.NewPostgresReader(&pgConfig, tableVersions)
 	if err != nil {
-		log.Fatalln("Failed to start workers", err)
+		log.Fatalln("Failed to setup postgres reader", err)
 	}
 
-	hcBackend := healthcheck.NewBackend(rsConnection, pgBackend)
+	blueprintClient := blueprint.New(blueprintHost)
+	scoopClient := scoop.New(scoopURL)
+	migrator := migrator.New(aceBackend, metaReader, blueprintClient, scoopClient, tableVersions, migratorPollPeriod)
+
+	hcBackend := healthcheck.NewBackend(rsConnection, metaReader)
 	hcHandler := healthcheck.NewHandler(hcBackend)
 
 	serveMux := http.NewServeMux()
@@ -130,7 +158,7 @@ func main() {
 	if err != nil {
 		log.Fatalln("Failed to set up postgres connection", err)
 	}
-	controlBackend := control.NewControlBackend(db)
+	controlBackend := control.NewControlBackend(db, tableVersions)
 	controlHandler := control.NewControlHandler(controlBackend, stats)
 
 	serveMux.Handle("/control/ingest", control.NewControlRouter(controlHandler))
@@ -153,7 +181,10 @@ func main() {
 	go func() {
 		<-sigc
 		log.Println("Sigint received -- shutting down")
-		pgBackend.Close()
+		migrator.Close()
+		if metaBackend != nil {
+			metaBackend.Close()
+		}
 		// Cause flush
 		err = stats.Close()
 		if err != nil {

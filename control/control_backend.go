@@ -8,6 +8,7 @@ import (
 
 	"github.com/lib/pq"
 	"github.com/twitchscience/rs_ingester/constants"
+	"github.com/twitchscience/rs_ingester/versions"
 )
 
 // Event represents an event, or table, that needs to be loaded
@@ -19,17 +20,19 @@ type Event struct {
 
 // Backend is the backend for control, which operates on the ingester
 type Backend struct {
-	db *sql.DB
+	db       *sql.DB
+	versions versions.Getter
 }
 
 // NewControlBackend instantiates the control backend with a db connection
-func NewControlBackend(db *sql.DB) *Backend {
-	return &Backend{db}
+func NewControlBackend(db *sql.DB, tableVersions versions.Getter) *Backend {
+	return &Backend{db, tableVersions}
 }
 
 // ForceIngest makes the given table the highest priority to load next
 func (cBackend *Backend) ForceIngest(tableName string) error {
-	_, err := cBackend.db.Exec(`UPDATE `+pq.QuoteIdentifier(constants.TsvTable)+` SET ts=to_timestamp(0) WHERE manifest_uuid IS NULL AND tablename=$1`, tableName)
+	currentVersion, _ := cBackend.versions.Get(tableName)
+	_, err := cBackend.db.Exec(`UPDATE `+pq.QuoteIdentifier(constants.TsvTable)+` SET ts=to_timestamp(0) WHERE manifest_uuid IS NULL AND tablename = $1 AND version <= $2`, tableName, currentVersion)
 	if err != nil {
 		return fmt.Errorf("Error executing query: %v", err)
 	}

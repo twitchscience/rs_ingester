@@ -37,7 +37,7 @@ func (r *TableListRequest) GetResult(i int, err error) *RSResult {
 	}
 }
 
-//Query uses the RSConnection to execute teh query created by the request
+//Query uses the RSConnection to execute the query created by the request
 func (r *TableListRequest) Query(rs *RSConnection) ([]string, error) {
 	var tables []string
 	rows, err := rs.Conn.Query(tableListCommand, r.Schema)

@@ -19,6 +19,7 @@ exec ./rs_ingester \
   -manifestBucket="${MANIFEST_BUCKET}" \
   -loadCountTrigger="${LOAD_COUNT_TRIGGER}" \
   -loadAgeSeconds="${LOAD_AGE_SECONDS}" \
-  -tableWhitelist="${TABLE_WHITELIST}" \
   -no_work_delay="${NO_WORK_DELAY}" \
+  -migratorPollPeriod="${MIGRATOR_POLL_PERIOD}" \
+  -blueprint_host="${BLUEPRINT_HOST}" \
   -rsURL="${RS_URL}"

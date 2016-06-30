@@ -11,11 +11,11 @@ import (
 //Backend is the backend for the health check
 type Backend struct {
 	connection loadclient.Loader
-	pgBackend  metadata.Backend
+	pgBackend  metadata.Reader
 }
 
 // NewBackend inits a new healthcheck backend
-func NewBackend(connection loadclient.Loader, pgBackend metadata.Backend) *Backend {
+func NewBackend(connection loadclient.Loader, pgBackend metadata.Reader) *Backend {
 	return &Backend{connection, pgBackend}
 }
 

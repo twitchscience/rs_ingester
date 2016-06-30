@@ -1,5 +1,0 @@
-* Development
-** Ingester TODOS
-*** TODO add tests
-*** TODO allow better configuration for a integration test mode
-*** TODO move TestHandleSimpleMessage into a flag based integration test

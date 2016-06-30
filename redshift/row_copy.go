@@ -104,13 +104,8 @@ func (r ManifestRowCopyRequest) TxExec(t *sql.Tx) error {
 	return nil
 }
 
-//RowQueryer is the interface that has a method that returns a function for the row query
-type RowQueryer interface {
-	QueryRow(query string, args ...interface{}) *sql.Row
-}
-
 //CheckLoadStatus checks the status of a load into redshift
-func CheckLoadStatus(t RowQueryer, manifestURL string) (scoop_protocol.LoadStatus, error) {
+func CheckLoadStatus(t *sql.Tx, manifestURL string) (scoop_protocol.LoadStatus, error) {
 	var count int
 	q := fmt.Sprintf(copyCommandSearch, manifestURL)
 

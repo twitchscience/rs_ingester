@@ -12,13 +12,19 @@ type LoadManifest struct {
 	UUID      string
 }
 
+// Reader specifies the interface for reading current table versions in tsvs
+type Reader interface {
+	Versions() (map[string]int, error)
+	PingDB() error
+}
+
 // Backend specifies the interface for load state
 type Backend interface {
 	Storer
+	Reader
 	LoadReady() chan *LoadManifest
 	LoadError(manifestUUID, loadError string)
 	LoadDone(manifestUUID string)
-	PingDB() error
 }
 
 // Storer specifies recording loads in the db
