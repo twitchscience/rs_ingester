@@ -181,11 +181,11 @@
 		},
 		{
 			"ImportPath": "github.com/twitchscience/aws_utils/common",
-			"Rev": "d39958d2106d3a6ede848c540d2f0d13de8d6dd7"
+			"Rev": "d54870e0fca2f2f6a16cc4f98dc28a3d4ece8c2a"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/aws_utils/listener",
-			"Rev": "d39958d2106d3a6ede848c540d2f0d13de8d6dd7"
+			"Rev": "d54870e0fca2f2f6a16cc4f98dc28a3d4ece8c2a"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/scoop_protocol/msg_signer",

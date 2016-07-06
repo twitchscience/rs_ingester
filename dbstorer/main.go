@@ -66,7 +66,8 @@ func main() {
 	}
 
 	session := session.New()
-	sqs := sqs.New(session)
+	// In cases we get a temporary influx of traffic, want to be resilient.
+	sqs := sqs.New(session, aws.NewConfig().WithMaxRetries(10))
 
 	listeners := make([]*listener.SQSListener, listenerCount)
 	for i := 0; i < listenerCount; i++ {

@@ -63,7 +63,7 @@ func (l *SQSListener) handle(msg *sqs.Message, qURL *string) {
 	})
 
 	if err != nil {
-		fmt.Println("unable to delete msg: ", err)
+		fmt.Printf("Delete message failed with %s, message: %v", err, msg)
 	}
 }
 
