@@ -32,7 +32,7 @@ func NewControlBackend(db *sql.DB, tableVersions versions.Getter) *Backend {
 // ForceIngest makes the given table the highest priority to load next
 func (cBackend *Backend) ForceIngest(tableName string) error {
 	currentVersion, _ := cBackend.versions.Get(tableName)
-	_, err := cBackend.db.Exec(`UPDATE `+pq.QuoteIdentifier(constants.TsvTable)+` SET ts=to_timestamp(0) WHERE manifest_uuid IS NULL AND tablename = $1 AND version <= $2`, tableName, currentVersion)
+	_, err := cBackend.db.Exec(`UPDATE `+pq.QuoteIdentifier(constants.TsvTable)+` SET ts=to_timestamp(0) WHERE manifest_uuid IS NULL AND tablename = $1 AND tableversion <= $2`, tableName, currentVersion)
 	if err != nil {
 		return fmt.Errorf("Error executing query: %v", err)
 	}

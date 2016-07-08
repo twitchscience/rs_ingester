@@ -111,7 +111,7 @@ func (m *Migrator) loop() {
 				if err != nil {
 					log.Printf("Error migrating %s to version %d: %v", table, newVersion, err)
 				} else {
-					log.Printf("Migrated table %s to version %d sucessfully.", table, newVersion)
+					log.Printf("Migrated table %s to version %d successfully.", table, newVersion)
 				}
 			}
 		case <-m.closer:
