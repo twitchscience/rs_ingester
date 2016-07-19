@@ -1,10 +1,10 @@
 package lib
 
 import (
-	"log"
 	"os"
 
 	"github.com/cactus/go-statsd-client/statsd"
+	"github.com/twitchscience/aws_utils/logger"
 )
 
 // InitStats sets up the statsd monitoring, with a noop connection if
@@ -15,13 +15,13 @@ func InitStats(statsPrefix string) (stats statsd.Statter, err error) {
 	if statsdHostport == "" {
 		// Error is meaningless here.
 		stats, _ = statsd.NewNoop(statsdHostport, statsPrefix)
-		log.Println("Running statsd with noop client.")
+		logger.Info("Running statsd with noop client")
 	} else {
 		if stats, err = statsd.New(statsdHostport, statsPrefix); err != nil {
-			log.Printf("Error connecting to statsd server at %s\n", statsdHostport)
+			logger.WithError(err).Errorf("Error connecting to statsd server at %s", statsdHostport)
 			return
 		}
-		log.Printf("Connected to statsd at %s\n", statsdHostport)
+		logger.Infof("Connected to statsd at %s", statsdHostport)
 	}
 	return
 }

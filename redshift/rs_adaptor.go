@@ -3,11 +3,11 @@ package redshift
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	_ "github.com/lib/pq" //necessary for the postgres querys ran from funcs here
+	"github.com/twitchscience/aws_utils/logger"
 )
 
 //Table is the internal representation of the the table in the rs_adaptor
@@ -119,7 +119,7 @@ func (rs *RSConnection) mungeTable(rows *sql.Rows, maxRowsReturned int, start ti
 	defer func() {
 		err := rows.Close()
 		if err != nil {
-			log.Printf("Could not close rows object: %s", err.Error())
+			logger.WithError(err).Error("Could not close rows object")
 		}
 	}()
 	return t
@@ -143,7 +143,7 @@ func (rs *RSConnection) ExecCommand(r RSRequest) (int, error) {
 	if err != nil {
 		rollbackErr := tx.Rollback()
 		if rollbackErr != nil {
-			log.Printf("Could not rollback successfully: %s", rollbackErr.Error())
+			logger.WithError(rollbackErr).Error("Could not rollback successfully")
 		}
 		return 0, err
 	}
@@ -151,7 +151,7 @@ func (rs *RSConnection) ExecCommand(r RSRequest) (int, error) {
 	if err != nil {
 		rollbackErr := tx.Rollback()
 		if rollbackErr != nil {
-			log.Printf("Could not rollback successfully: %s", rollbackErr.Error())
+			logger.WithError(rollbackErr).Error("Could not rollback successfully")
 		}
 		return 0, err
 	}
@@ -170,13 +170,13 @@ func (rs *RSConnection) ExecInTransaction(cmds ...RSRequest) error {
 	}
 	for _, cmd := range cmds {
 		s := cmd.GetExec()
-		log.Println("Executing:", s)
+		logger.Info("Executing:", s)
 		_, err = tx.Exec(s)
 		if err != nil {
-			log.Println(fmt.Sprintf("Failed to execute: %s. Error: %s", s, err.Error()))
+			logger.WithError(err).WithField("query", s).Error("Failed to execute")
 			rollbackErr := tx.Rollback()
 			if rollbackErr != nil {
-				log.Printf("Could not rollback successfully: %s", rollbackErr.Error())
+				logger.WithError(rollbackErr).Error("Could not rollback successfully")
 			}
 			return err
 		}
@@ -198,7 +198,7 @@ func (rs *RSConnection) ExecFnInTransaction(work func(*sql.Tx) error) error {
 	if err != nil {
 		rollbackErr := tx.Rollback()
 		if rollbackErr != nil {
-			log.Printf("Could not rollback successfully: %s", rollbackErr.Error())
+			logger.WithError(rollbackErr).Error("Could not rollback successfully")
 		}
 		return err
 	}

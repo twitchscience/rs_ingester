@@ -2,8 +2,9 @@ package scoop
 
 import (
 	"fmt"
-	"log"
 	"net/http"
+
+	"github.com/twitchscience/aws_utils/logger"
 )
 
 // Client is a client to interface with scoop's HTTP api
@@ -26,7 +27,7 @@ func (c *Client) EnforcePermissions() error {
 	defer func() {
 		err = resp.Body.Close()
 		if err != nil {
-			log.Printf("Error closing scoop enforce permissions response body: %v", err)
+			logger.WithError(err).Error("Error closing scoop enforce permissions response body")
 		}
 	}()
 	if resp.StatusCode >= 400 {

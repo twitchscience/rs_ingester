@@ -18,4 +18,6 @@ exec ./dbstorer \
   -databaseURL="${INGESTER_DB_URL}" \
   -sqsQueueName="${PROCESSED_FILES_SQS_QUEUE}" \
   -sqsPollWait="${SQS_POLL_WAIT}" \
-  -listenerCount="${LISTENER_COUNT}"
+  -listenerCount="${LISTENER_COUNT}" \
+  -rollbarToken="${ROLLBAR_TOKEN}" \
+  -rollbarEnvironment="${CLOUD_ENVIRONMENT}" \

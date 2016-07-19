@@ -7,12 +7,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
 	"math/rand"
 	"time"
 
 	_ "github.com/lib/pq" // To register "postgres" with database/sql
 	"github.com/pborman/uuid"
+	"github.com/twitchscience/aws_utils/logger"
 	"github.com/twitchscience/rs_ingester/constants"
 	"github.com/twitchscience/rs_ingester/versions"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
@@ -113,7 +113,7 @@ func NewPostgresLoader(cfg *PGConfig, lChecker loadChecker, versions versions.Ge
 		return nil, err
 	}
 
-	go b.loadReadyWorker()
+	logger.Go(b.loadReadyWorker)
 
 	return b, nil
 }
@@ -138,7 +138,8 @@ func (b *postgresBackend) LoadDone(manifestUUID string) {
 		return b.loadDoneHelper(tx, manifestUUID)
 	})
 	if err != nil {
-		log.Printf("Error marking load %s as done and used all retries; final error: %s\n", manifestUUID, err.Error())
+		logger.WithError(err).WithField("manifestUUID", manifestUUID).
+			Error("Error marking load as done and used all retries; final error attached")
 	}
 }
 
@@ -147,7 +148,8 @@ func (b *postgresBackend) LoadError(manifestUUID string, loadError string) {
 		return b.loadErrorHelper(tx, manifestUUID, loadError)
 	})
 	if err != nil {
-		log.Printf("Error marking load %s as error and used all retries; final error: %s\n", manifestUUID, err.Error())
+		logger.WithError(err).WithField("manifestUUID", manifestUUID).
+			Error("Error marking load as error and used all retries; final error attached")
 	}
 }
 
@@ -160,7 +162,7 @@ func (b *postgresBackend) Versions() (map[string]int, error) {
 	defer func() {
 		err = rows.Close()
 		if err != nil {
-			log.Printf("Error closing rows for versions: %s", err)
+			logger.WithError(err).Error("Error closing rows for versions")
 		}
 	}()
 
@@ -227,7 +229,7 @@ func (b *postgresBackend) loadReadyWorker() {
 			if err == nil {
 				lastStaleCheck = time.Now().In(time.UTC)
 			} else {
-				log.Println("Error checking stale loads:", err)
+				logger.WithError(err).Error("Error checking stale loads")
 			}
 
 			if stale != nil {
@@ -243,7 +245,7 @@ func (b *postgresBackend) loadReadyWorker() {
 			return err
 		})
 		if err != nil {
-			log.Printf("Error fetching manifest for load after %d tries. last error: %s", dbRetryCount, err)
+			logger.WithError(err).Errorf("Error fetching manifest for load after %d tries. last error attached", dbRetryCount)
 		}
 
 		sleepDelay := noWorkDelay
@@ -267,12 +269,12 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadManifest, error) {
 	for {
 		tx, err := b.db.Begin()
 		if err != nil {
-			log.Println("Error beginning transaction", err)
+			logger.WithError(err).Error("Error beginning transaction")
 			return nil, err
 		}
 
 		if err = isolateTransaction(tx); err != nil {
-			log.Println("Error setting transaction serializable", err)
+			logger.WithError(err).Error("Error setting transaction serializable")
 			return nil, err
 		}
 
@@ -285,35 +287,35 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadManifest, error) {
 			return nil, nil
 		}
 
-		log.Println("Checking up on load", loadUUID)
+		logger.WithField("loadUUID", loadUUID).Info("Checking up on load")
 
 		err = tx.Commit()
 		if err != nil {
-			log.Println("Error on commit when locking manifest load", err)
+			logger.WithError(err).Error("Error on commit when locking manifest load")
 			return nil, err
 		}
 
 		loadStatus, err := b.loadChecker.CheckLoad(loadUUID)
 		if err != nil {
-			log.Println("Got error checking load status", err)
-			return nil, err // Is exiting the best thing to do here?
+			logger.WithError(err).Error("Got error checking load status")
+			return nil, err
 		}
 
 		tx, err = b.db.Begin()
 		if err != nil {
-			log.Println("Error beginning transaction", err)
+			logger.WithError(err).Error("Error beginning transaction")
 			return nil, err
 		}
 
 		if err = isolateTransaction(tx); err != nil {
-			log.Println("Error setting transaction serializable", err)
+			logger.WithError(err).Error("Error setting transaction serializable")
 			return nil, err
 		}
 
 		switch loadStatus {
 		case scoop_protocol.LoadComplete:
 			// If completed succesfully, delete tsv rows
-			log.Printf("Load %s is complete, marking done", loadUUID)
+			logger.WithField("loadUUID", loadUUID).Info("Load is complete, marking done")
 			err = b.loadDoneHelper(tx, loadUUID)
 			if err != nil {
 				return nil, err
@@ -323,7 +325,10 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadManifest, error) {
 
 		case scoop_protocol.LoadNotFound, scoop_protocol.LoadFailed:
 			if lastError.Valid {
-				log.Printf("Load %s is in status %s and has a known error (%s), retrying manifest", loadUUID, loadStatus, lastError.String)
+				logger.WithError(err).WithField("loadUUID", loadUUID).
+					WithField("loadStatus", loadStatus).
+					WithField("error", lastError.String).
+					Infof("Load is in status %s and has a known error, retrying manifest", loadStatus)
 				var tsv *LoadManifest
 				tsv, err = getLoadManifest(tx, loadUUID)
 				if err != nil {
@@ -332,7 +337,9 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadManifest, error) {
 				return tsv, tx.Commit()
 			}
 
-			log.Printf("Load %s is in status %s, deleting manifest so it retries", loadUUID, loadStatus)
+			logger.WithField("loadUUID", loadUUID).WithField("loadStatus", loadStatus).
+				Infof("Load is in status %s, deleting manifest so it retries", loadStatus)
+
 			_, err = tx.Exec(`UPDATE `+constants.TsvTable+` SET manifest_uuid = NULL
                               WHERE manifest_uuid = $1`, loadUUID)
 			if err != nil {
@@ -349,7 +356,7 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadManifest, error) {
 			}
 
 		case scoop_protocol.LoadInProgress:
-			log.Printf("Load %s is still in progress, waiting\n", loadUUID)
+			logger.WithField("loadUUID", loadUUID).Info("Load is still in progress, waiting")
 			err = tx.Rollback()
 			if err != nil {
 				return nil, err
@@ -375,21 +382,21 @@ func staleLoadMetadata(tx *sql.Tx) (loadUUID string, lastError sql.NullString, e
                               `, retryTs, now, maxLoadRetryCount)
 
 	if err != nil {
-		log.Println("Error querying for stale locks", err)
+		logger.WithError(err).Error("Error querying for stale locks")
 		err = rollbackAndError(tx, err)
 		return
 	}
 	defer func() {
 		err = rows.Close()
 		if err != nil {
-			log.Printf("Error closing rows for stale load metadata: %s", err)
+			logger.WithError(err).Error("Error closing rows for stale load metadata")
 		}
 	}()
 
 	if rows.Next() {
 		err = rows.Scan(&loadUUID, &lastError)
 		if err != nil {
-			log.Println("Got error fetching tsv row", err)
+			logger.WithError(err).Error("Got error fetching tsv row")
 			err = rollbackAndError(tx, err)
 			return
 		}
@@ -449,7 +456,7 @@ LIMIT $3
 	defer func() {
 		err = rows.Close()
 		if err != nil {
-			log.Printf("Error closing rows for findTableVersionToLoad: %s", err)
+			logger.WithError(err).Error("Error closing rows for findTableVersionToLoad")
 		}
 	}()
 
@@ -478,7 +485,7 @@ func (b *postgresBackend) fetchLoad() (*LoadManifest, error) {
 	}
 
 	if err = isolateTransaction(tx); err != nil {
-		log.Println("Error on setting serializable:", err)
+		logger.WithError(err).Error("Error on setting serializable")
 		return nil, rollbackAndError(tx, err)
 	}
 
@@ -489,7 +496,7 @@ func (b *postgresBackend) fetchLoad() (*LoadManifest, error) {
                       VALUES ($1, $2)
                      `, manifestUUID, retryTs)
 	if err != nil {
-		log.Println("Error inserting into "+constants.ManifestTable, err)
+		logger.WithError(err).Error("Error inserting into " + constants.ManifestTable)
 		return nil, rollbackAndError(tx, err)
 	}
 
@@ -536,14 +543,14 @@ func getLoadManifest(tx *sql.Tx, manifestUUID string) (*LoadManifest, error) {
 	defer func() {
 		err = rows.Close()
 		if err != nil {
-			log.Printf("Error closing rows for load manifest: %s", err)
+			logger.WithError(err).Error("Error closing rows for load manifest")
 		}
 	}()
 	for rows.Next() {
 		var load Load
 		err := rows.Scan(&load.KeyName, &load.TableName)
 		if err != nil {
-			log.Printf("Scan threw an error: %v", err)
+			logger.WithError(err).Error("Scan threw an error")
 			return nil, err
 		}
 
@@ -575,19 +582,19 @@ func retryInTransaction(retryCount int, db *sql.DB, f func(tx *sql.Tx) error) er
 	return retrying(dbRetryCount, func() error {
 		tx, err := db.Begin()
 		if err != nil {
-			log.Println("Error beginning transaction", err)
+			logger.WithError(err).Error("Error beginning transaction")
 			return err
 		}
 
 		if err = isolateTransaction(tx); err != nil {
-			log.Println("Error setting transaction serializable", err)
+			logger.WithError(err).Error("Error setting transaction serializable")
 			return err
 		}
 
 		err = f(tx)
 
 		if err != nil {
-			log.Printf("Error in transaction %s", err.Error())
+			logger.WithError(err).Error("Error in transaction")
 			return rollbackAndError(tx, err)
 		}
 

@@ -3,7 +3,8 @@ package redshift
 import (
 	"database/sql"
 	"fmt"
-	"log"
+
+	"github.com/twitchscience/aws_utils/logger"
 )
 
 const (
@@ -19,7 +20,7 @@ type MakeSuperuser struct {
 func (r *MakeSuperuser) TxExec(t *sql.Tx) error {
 	_, err := t.Exec(fmt.Sprintf(superuserCommand, r.User))
 	if err != nil {
-		log.Printf("Error on making superuser: %v", err)
+		logger.WithError(err).Error("Error on making superuser")
 		return err
 	}
 	return nil

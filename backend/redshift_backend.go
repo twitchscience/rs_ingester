@@ -5,12 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/lib/pq"
+	"github.com/twitchscience/aws_utils/logger"
 	"github.com/twitchscience/rs_ingester/redshift"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
@@ -177,7 +177,7 @@ func (r *RedshiftBackend) Schema(event string) (*scoop_protocol.Config, error) {
 	}
 	comment, err := req.Query(r.connection)
 	if err != nil {
-		log.Println("Error reading comment on table:", event)
+		logger.WithError(err).Error("Error reading comment on table")
 		return nil, err
 	}
 	var cfg scoop_protocol.Config
@@ -198,7 +198,7 @@ func (r *RedshiftBackend) TableVersions() (map[string]int, error) {
 	defer func() {
 		err = rows.Close()
 		if err != nil {
-			log.Printf("Error closing rows: %s", err)
+			logger.WithError(err).Error("Error closing rows")
 		}
 	}()
 	for rows.Next() {

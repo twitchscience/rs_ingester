@@ -3,10 +3,10 @@ package control
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/lib/pq"
+	"github.com/twitchscience/aws_utils/logger"
 	"github.com/twitchscience/rs_ingester/constants"
 	"github.com/twitchscience/rs_ingester/versions"
 )
@@ -50,7 +50,7 @@ func (cBackend *Backend) GetPendingTables() ([]Event, error) {
 	defer func() {
 		err = rows.Close()
 		if err != nil {
-			log.Printf("Error closing rows: %s", err)
+			logger.WithError(err).Error("Error closing rows")
 		}
 	}()
 	for rows.Next() {

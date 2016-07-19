@@ -3,12 +3,12 @@ package redshift
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/lib/pq"
+	"github.com/twitchscience/aws_utils/logger"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
 
@@ -79,7 +79,7 @@ func (r RowCopyRequest) TxExec(t *sql.Tx) error {
 
 	_, err := t.Exec(query)
 	if err != nil {
-		log.Printf("Error on executing copy: %v", err)
+		logger.WithError(err).Error("Error on executing copy")
 		return err
 	}
 
@@ -97,7 +97,7 @@ func (r ManifestRowCopyRequest) TxExec(t *sql.Tx) error {
 
 	_, err := t.Exec(query)
 	if err != nil {
-		log.Printf("Error on executing copy: %v", err)
+		logger.WithError(err).Error("Error on executing copy")
 		return err
 	}
 
@@ -115,7 +115,7 @@ func CheckLoadStatus(t *sql.Tx, manifestURL string) (scoop_protocol.LoadStatus, 
 	}
 
 	if count != 0 {
-		log.Printf("CheckLoadStatus: Manifest copy %s is in STV_RECENTS as running", manifestURL)
+		logger.WithField("manifestURL", manifestURL).Info("CheckLoadStatus: Manifest copy is in STV_RECENTS as running")
 		return scoop_protocol.LoadInProgress, nil
 	}
 
@@ -123,7 +123,7 @@ func CheckLoadStatus(t *sql.Tx, manifestURL string) (scoop_protocol.LoadStatus, 
 	err = t.QueryRow("SELECT xid, aborted FROM STL_QUERY WHERE querytxt ILIKE $1", q).Scan(&xid, &aborted)
 	switch {
 	case err == sql.ErrNoRows:
-		log.Printf("CheckLoadStatus: Manifest copy %s does not have a transaction ID", manifestURL)
+		logger.WithField("manifestURL", manifestURL).Error("CheckLoadStatus: Manifest copy does not have a transaction ID")
 		return scoop_protocol.LoadNotFound, nil
 	case err != nil:
 		return "", err
@@ -131,7 +131,7 @@ func CheckLoadStatus(t *sql.Tx, manifestURL string) (scoop_protocol.LoadStatus, 
 	}
 
 	if aborted == 1 {
-		log.Printf("CheckLoadStatus: Manifest copy %s was aborted while running", manifestURL)
+		logger.WithField("manifestURL", manifestURL).Error("CheckLoadStatus: Manifest copy was aborted while running")
 		return scoop_protocol.LoadFailed, nil
 	}
 
@@ -141,7 +141,7 @@ func CheckLoadStatus(t *sql.Tx, manifestURL string) (scoop_protocol.LoadStatus, 
 	}
 
 	if count != 0 {
-		log.Printf("CheckLoadStatus: Manifest copy %s was committed", manifestURL)
+		logger.WithField("manifestURL", manifestURL).Info("CheckLoadStatus: Manifest copy was committed")
 		return scoop_protocol.LoadComplete, nil
 	}
 
@@ -151,11 +151,11 @@ func CheckLoadStatus(t *sql.Tx, manifestURL string) (scoop_protocol.LoadStatus, 
 	}
 
 	if count != 0 {
-		log.Printf("CheckLoadStatus: Manifest copy %s was rolled back", manifestURL)
+		logger.WithField("manifestURL", manifestURL).Info("CheckLoadStatus: Manifest copy was rolled back")
 		return scoop_protocol.LoadFailed, nil
 	}
 
-	log.Printf("CheckLoadStatus: Manifest copy %s was found, has a transaction, and neither rolled back nor committed, assume still running", manifestURL)
+	logger.WithField("manifestURL", manifestURL).Info("CheckLoadStatus: Manifest copy was found, has a transaction, and neither rolled back nor committed, assume still running")
 	return scoop_protocol.LoadInProgress, nil
 }
 
@@ -166,9 +166,9 @@ func CopyCredentials(credentials *credentials.Credentials) (accessCreds string) 
 		credentials.Expire()
 	}
 
-	v, e := credentials.Get()
-	if e != nil {
-		log.Println("Failed to retrieve credentials!")
+	v, err := credentials.Get()
+	if err != nil {
+		logger.WithError(err).Error("Failed to retrieve credentials")
 		return ""
 	}
 

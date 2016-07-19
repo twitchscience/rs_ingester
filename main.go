@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"log"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -16,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager/s3manageriface"
 	"github.com/cactus/go-statsd-client/statsd"
+	"github.com/twitchscience/aws_utils/logger"
 	"github.com/twitchscience/rs_ingester/blueprint"
 	"github.com/twitchscience/rs_ingester/control"
 	"github.com/twitchscience/rs_ingester/migrator"
@@ -38,6 +38,8 @@ var (
 	statsPrefix        string
 	manifestBucket     string
 	rsURL              string
+	rollbarToken       string
+	rollbarEnvironment string
 	blueprintHost      string
 	scoopURL           string
 	pgConfig           metadata.PGConfig
@@ -55,16 +57,20 @@ func (i *loadWorker) Work() {
 
 	c := i.MetadataBackend.LoadReady()
 	for load := range c {
-		log.Printf("Loading manifest %s (%d files) into table %s", load.UUID, len(load.Loads), load.TableName)
+		logger.WithField("loadUUID", load.UUID).
+			WithField("numFiles", len(load.Loads)).
+			WithField("table", load.TableName).
+			Info("Loading manifest into table")
 		err := i.Loader.LoadManifest(load)
 		if err != nil {
 			if err.Retryable() {
 				i.MetadataBackend.LoadError(load.UUID, err.Error())
 			}
-			log.Printf("Error loading: %s, retryable: %t", err.Error(), err.Retryable())
+			logger.WithError(err).WithField("retryable", err.Retryable()).Error("Error loading files into table.")
 			continue
 		}
-		log.Printf("Loaded manifest %s into table %s", load.UUID, load.TableName)
+		logger.WithField("loadUUID", load.UUID).
+			WithField("table", load.TableName).Info("Loaded manifest into table")
 		i.MetadataBackend.LoadDone(load.UUID)
 	}
 	workerGroup.Done()
@@ -79,12 +85,16 @@ func startWorkers(s3Uploader s3manageriface.UploaderAPI, b metadata.Backend, sta
 		}
 		workers[i] = loadWorker{MetadataBackend: b, Loader: loadclient}
 		workerGroup.Add(1)
-		go workers[i].Work()
+		index := i
+		logger.Go(func() {
+			workers[index].Work()
+		})
 	}
 	return workers, nil
 }
 
 func init() {
+	logger.Init("info")
 	flag.DurationVar(&migratorPollPeriod, "migratorPollPeriod", time.Minute, "the period betwen each poll the migrator does of ingesterdb for new versions to migrate to")
 	flag.StringVar(&statsPrefix, "statsPrefix", "ingester", "the prefix to statsd")
 	flag.StringVar(&pgConfig.DatabaseURL, "databaseURL", "", "Postgres-scheme url for the RDS instance")
@@ -96,32 +106,37 @@ func init() {
 	flag.StringVar(&blueprintHost, "blueprint_host", "", "Host name (and optionally :port) for communicating with blueprint")
 	flag.StringVar(&scoopURL, "scoopURL", "", "Base url of scoop (protocol and host)")
 	flag.StringVar(&rsURL, "rsURL", "", "URL for Redshift")
+	flag.StringVar(&rollbarToken, "rollbarToken", "", "Rollbar post_server_item token")
+	flag.StringVar(&rollbarEnvironment, "rollbarEnvironment", "", "Rollbar environment")
 }
 
 func main() {
 	flag.Parse()
 	pgConfig.LoadAgeTrigger = time.Second * time.Duration(loadAgeSeconds)
 
-	log.SetOutput(os.Stdout)
 	stats, err := lib.InitStats(statsPrefix)
 	if err != nil {
-		log.Fatalln("Failed to setup statter", err)
+		logger.WithError(err).Fatal("Failed to setup statter")
 	}
+
+	logger.InitWithRollbar("info", rollbarToken, rollbarEnvironment)
+	defer logger.LogPanic()
+
 	session := session.New()
 	s3Uploader := s3manager.NewUploader(session)
 	aceBackend, err := backend.BuildRedshiftBackend(session.Config.Credentials, poolSize+healthCheckPoolSize, rsURL)
 	if err != nil {
-		log.Fatalln("Failed to setup redshift connection", err)
+		logger.WithError(err).Fatal("Failed to setup redshift connection")
 	}
 
 	rsConnection, err := loadclient.NewRSLoader(s3Uploader, aceBackend, manifestBucket, stats)
 	if err != nil {
-		log.Fatalln("Failed to setup Redshift loading client for postgres", err)
+		logger.WithError(err).Fatal("Failed to setup Redshift loading client for postgres")
 	}
 
 	initVersions, err := aceBackend.TableVersions()
 	if err != nil {
-		log.Fatalf("Failed initialization of table version cache: %v", err)
+		logger.WithError(err).Fatal("Failed initialization of table version cache")
 	}
 	tableVersions := versions.New(initVersions)
 
@@ -130,18 +145,18 @@ func main() {
 	if poolSize > 0 {
 		metaBackend, err = metadata.NewPostgresLoader(&pgConfig, rsConnection, tableVersions)
 		if err != nil {
-			log.Fatalln("Failed to setup postgres backend", err)
+			logger.WithError(err).Fatal("Failed to setup postgres backend")
 		}
 
 		_, err = startWorkers(s3Uploader, metaBackend, stats, aceBackend)
 		if err != nil {
-			log.Fatalln("Failed to start workers", err)
+			logger.WithError(err).Fatal("Failed to start workers")
 		}
 	}
 
 	metaReader, err := metadata.NewPostgresReader(&pgConfig, tableVersions)
 	if err != nil {
-		log.Fatalln("Failed to setup postgres reader", err)
+		logger.WithError(err).Fatal("Failed to setup postgres reader")
 	}
 
 	blueprintClient := blueprint.New(blueprintHost)
@@ -156,7 +171,7 @@ func main() {
 
 	db, err := metadata.ConnectToDB(pgConfig.DatabaseURL, pgConfig.MaxConnections)
 	if err != nil {
-		log.Fatalln("Failed to set up postgres connection", err)
+		logger.WithError(err).Fatal("Failed to set up postgres connection")
 	}
 	controlBackend := control.NewControlBackend(db, tableVersions)
 	controlHandler := control.NewControlHandler(controlBackend, stats)
@@ -164,23 +179,23 @@ func main() {
 	serveMux.Handle("/control/ingest", control.NewControlRouter(controlHandler))
 	serveMux.Handle("/loads/tables", control.NewControlRouter(controlHandler))
 
-	go func() {
-		if err = http.ListenAndServe(net.JoinHostPort("localhost", "8080"), serveMux); err != nil {
-			log.Fatal("Serving health and control failed: ", err)
-		}
-	}()
+	logger.Go(func() {
+		logger.WithError(http.ListenAndServe(net.JoinHostPort("localhost", "8080"), serveMux)).
+			Fatal("Serving health and control failed")
+	})
 
-	go func() {
-		log.Println(http.ListenAndServe(":6060", nil))
-	}()
+	logger.Go(func() {
+		logger.WithError(http.ListenAndServe(":6060", nil)).
+			Error("Serving pprof failed")
+	})
 
 	wait := make(chan struct{})
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc, syscall.SIGINT)
-	log.Println("Loader is set up")
-	go func() {
+	logger.Info("Loader is set up")
+	logger.Go(func() {
 		<-sigc
-		log.Println("Sigint received -- shutting down")
+		logger.Info("Sigint received -- shutting down")
 		migrator.Close()
 		if metaBackend != nil {
 			metaBackend.Close()
@@ -188,10 +203,11 @@ func main() {
 		// Cause flush
 		err = stats.Close()
 		if err != nil {
-			log.Printf("Error closing statter: %s", err)
+			logger.WithError(err).Error("Error closing statter")
 		}
 		workerGroup.Wait()
+		logger.Wait()
 		close(wait)
-	}()
+	})
 	<-wait
 }

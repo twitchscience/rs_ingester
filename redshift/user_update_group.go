@@ -3,7 +3,8 @@ package redshift
 import (
 	"database/sql"
 	"fmt"
-	"log"
+
+	"github.com/twitchscience/aws_utils/logger"
 )
 
 const (
@@ -20,7 +21,7 @@ type UpdateGroup struct {
 func (r *UpdateGroup) TxExec(t *sql.Tx) error {
 	_, err := t.Exec(fmt.Sprintf(groupAddCommand, r.Group, r.User))
 	if err != nil {
-		log.Printf("Error on adding user to group: %v", err)
+		logger.WithError(err).Error("Error on adding user to group")
 		return err
 	}
 	return nil

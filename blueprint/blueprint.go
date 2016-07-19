@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"net/url"
 	"strconv"
 
+	"github.com/twitchscience/aws_utils/logger"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
 
@@ -37,7 +37,7 @@ func (c *Client) GetMigration(table string, toVersion int) ([]scoop_protocol.Ope
 	defer func() {
 		err = resp.Body.Close()
 		if err != nil {
-			log.Printf("Error closing response body from blueprint: %v", err)
+			logger.WithError(err).Error("Error closing response body from blueprint")
 		}
 	}()
 	if err != nil {

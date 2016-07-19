@@ -3,7 +3,8 @@ package redshift
 import (
 	"database/sql"
 	"fmt"
-	"log"
+
+	"github.com/twitchscience/aws_utils/logger"
 )
 
 const (
@@ -20,7 +21,7 @@ type NewUser struct {
 func (r *NewUser) TxExec(t *sql.Tx) error {
 	_, err := t.Exec(fmt.Sprintf(creationCommand, r.User, "analyst", r.Password))
 	if err != nil {
-		log.Printf("Error on creating user: %v", err)
+		logger.WithError(err).Error("Error on creating user")
 		return err
 	}
 	return nil

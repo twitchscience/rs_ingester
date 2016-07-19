@@ -22,4 +22,6 @@ exec ./rs_ingester \
   -no_work_delay="${NO_WORK_DELAY}" \
   -migratorPollPeriod="${MIGRATOR_POLL_PERIOD}" \
   -blueprint_host="${BLUEPRINT_HOST}" \
-  -rsURL="${RS_URL}"
+  -rsURL="${RS_URL}" \
+  -rollbarToken="${ROLLBAR_TOKEN}" \
+  -rollbarEnvironment="${CLOUD_ENVIRONMENT}" \

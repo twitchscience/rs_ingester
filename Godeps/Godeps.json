@@ -179,12 +179,26 @@
 			"Rev": "dee7705ef7b324f27ceb85a121c61f2c2e8ce988"
 		},
 		{
+			"ImportPath": "github.com/sirupsen/logrus",
+			"Comment": "v0.10.0-21-g32055c3",
+			"Rev": "32055c351ea8b00b96d70f28db48d9840feaf0ec"
+		},
+		{
+			"ImportPath": "github.com/stvp/rollbar",
+			"Comment": "v0.4.0-6-g3eb4713",
+			"Rev": "3eb4713e2655cd1be805795be31b3f85b74b05fd"
+		},
+		{
 			"ImportPath": "github.com/twitchscience/aws_utils/common",
-			"Rev": "d54870e0fca2f2f6a16cc4f98dc28a3d4ece8c2a"
+			"Rev": "e8a7b563ba4c5ab5b98d7904624a48b584d1e400"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/aws_utils/listener",
-			"Rev": "d54870e0fca2f2f6a16cc4f98dc28a3d4ece8c2a"
+			"Rev": "e8a7b563ba4c5ab5b98d7904624a48b584d1e400"
+		},
+		{
+			"ImportPath": "github.com/twitchscience/aws_utils/logger",
+			"Rev": "e8a7b563ba4c5ab5b98d7904624a48b584d1e400"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/scoop_protocol/msg_signer",

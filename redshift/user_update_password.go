@@ -3,7 +3,8 @@ package redshift
 import (
 	"database/sql"
 	"fmt"
-	"log"
+
+	"github.com/twitchscience/aws_utils/logger"
 )
 
 const (
@@ -20,7 +21,7 @@ type UpdatePassword struct {
 func (r *UpdatePassword) TxExec(t *sql.Tx) error {
 	_, err := t.Exec(fmt.Sprintf(userPwCommand, r.User, r.Password))
 	if err != nil {
-		log.Printf("Error on altering password: %v", err)
+		logger.WithError(err).Error("Error on altering password")
 		return err
 	}
 	return nil

@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"log"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -18,17 +17,20 @@ import (
 	"github.com/aws/aws-sdk-go/service/sqs/sqsiface"
 	"github.com/cactus/go-statsd-client/statsd"
 	"github.com/twitchscience/aws_utils/listener"
+	"github.com/twitchscience/aws_utils/logger"
 	"github.com/twitchscience/rs_ingester/lib"
 	"github.com/twitchscience/rs_ingester/metadata"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
 
 var (
-	pgConfig      metadata.PGConfig
-	sqsPollWait   time.Duration
-	sqsQueueName  string
-	statsPrefix   string
-	listenerCount int
+	pgConfig           metadata.PGConfig
+	sqsPollWait        time.Duration
+	sqsQueueName       string
+	statsPrefix        string
+	listenerCount      int
+	rollbarToken       string
+	rollbarEnvironment string
 )
 
 type rdsPipeHandler struct {
@@ -44,25 +46,28 @@ func init() {
 	flag.DurationVar(&sqsPollWait, "sqsPollWait", time.Second*30, "Number of seconds to wait between polling SQS")
 	flag.StringVar(&sqsQueueName, "sqsQueueName", "", "Name of sqs queue to list for events on")
 	flag.IntVar(&listenerCount, "listenerCount", 1, "Number of sqs listeners to run")
+	flag.StringVar(&rollbarToken, "rollbarToken", "", "Rollbar post_server_item token")
+	flag.StringVar(&rollbarEnvironment, "rollbarEnvironment", "", "Rollbar environment")
 }
 
 func main() {
 	flag.Parse()
 
-	log.SetOutput(os.Stdout)
+	logger.InitWithRollbar("info", rollbarToken, rollbarEnvironment)
+	defer logger.LogPanic()
 
 	stats, err := lib.InitStats(statsPrefix)
 	if err != nil {
-		log.Fatalln("Error initializing stats:", err)
+		logger.WithError(err).Fatal("Error initializing stats")
 	}
 
-	go func() {
-		log.Println(http.ListenAndServe(":6061", nil))
-	}()
+	logger.Go(func() {
+		logger.WithError(http.ListenAndServe(":6061", nil)).Error("Serving pprof failed")
+	})
 
 	postgresBackend, err := metadata.NewPostgresStorer(&pgConfig)
 	if err != nil {
-		log.Fatalf("Error initializing PostgresStorer: %s", err)
+		logger.WithError(err).Fatal("Error initializing PostgresStorer")
 	}
 
 	session := session.New()
@@ -78,20 +83,22 @@ func main() {
 
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc, syscall.SIGINT)
-	go func() {
-		<-sigc
+	logger.Go(func() {
 		// Cause flush
+		<-sigc
 		var wg sync.WaitGroup
 		wg.Add(listenerCount)
 		for i := 0; i < listenerCount; i++ {
-			go func() {
+			index := i
+			logger.Go(func() {
 				defer wg.Done()
-				listeners[i].Close()
-			}()
+				listeners[index].Close()
+			})
 		}
 		wg.Wait()
+		logger.Wait()
 		close(wait)
-	}()
+	})
 
 	<-wait
 }
@@ -105,12 +112,12 @@ func startWorker(sqs sqsiface.SQSAPI, queue string, stats statsd.Statter, b meta
 		},
 		sqsPollWait,
 		sqs)
-	go ret.Listen(queue)
+	logger.Go(func() { ret.Listen(queue) })
 	return ret
 }
 
 func (i *rdsPipeHandler) Handle(msg *sqs.Message) error {
-	log.Printf("Got %s;%s\n", aws.StringValue(msg.Body), aws.StringValue(msg.MessageId))
+	logger.WithField("body", msg.Body).WithField("messageID", msg.MessageId).Info("Received message")
 
 	req, err := i.Signer.GetRowCopyRequest(strings.NewReader(aws.StringValue(msg.Body)))
 	if err != nil {

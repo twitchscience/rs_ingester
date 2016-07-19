@@ -2,10 +2,10 @@ package migrator
 
 import (
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
+	"github.com/twitchscience/aws_utils/logger"
 	"github.com/twitchscience/rs_ingester/backend"
 	"github.com/twitchscience/rs_ingester/blueprint"
 	"github.com/twitchscience/rs_ingester/metadata"
@@ -74,7 +74,7 @@ func (m *Migrator) migrate(table string, to int) error {
 		}
 		err = m.scoopClient.EnforcePermissions()
 		if err != nil {
-			log.Println(err)
+			logger.WithError(err).Error("Problem enforcing permissions through scoop")
 		}
 	} else {
 		err = m.aceBackend.ApplyOperations(table, ops, to)
@@ -87,17 +87,17 @@ func (m *Migrator) migrate(table string, to int) error {
 }
 
 func (m *Migrator) loop() {
-	log.Println("Migrator started.")
-	defer log.Println("Migrator closed.")
+	logger.Info("Migrator started.")
+	defer logger.Info("Migrator stopped.")
 	tick := time.NewTicker(m.pollPeriod)
 	for {
 		select {
 		case <-tick.C:
 			outdatedTables, err := m.findTablesToMigrate()
 			if err != nil {
-				log.Printf("Error finding migrations to apply: %v", err)
+				logger.WithError(err).Error("Error finding migrations to apply")
 			}
-			log.Printf("Migrator found %d tables to migrate.", len(outdatedTables))
+			logger.WithField("numTables", len(outdatedTables)).Infof("Migrator found tables to migrate.")
 			for _, table := range outdatedTables {
 				var newVersion int
 				currentVersion, exists := m.versions.Get(table)
@@ -106,12 +106,12 @@ func (m *Migrator) loop() {
 				} else {
 					newVersion = currentVersion + 1
 				}
-				log.Printf("Beginning to migrate %s to version %d", table, newVersion)
+				logger.WithField("table", table).WithField("version", newVersion).Info("Beginning to migrate")
 				err := m.migrate(table, newVersion)
 				if err != nil {
-					log.Printf("Error migrating %s to version %d: %v", table, newVersion, err)
+					logger.WithError(err).WithField("table", table).WithField("version", newVersion).Error("Error migrating table")
 				} else {
-					log.Printf("Migrated table %s to version %d successfully.", table, newVersion)
+					logger.WithField("table", table).WithField("version", newVersion).Info("Migrated table successfully")
 				}
 			}
 		case <-m.closer:

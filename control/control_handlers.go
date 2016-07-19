@@ -2,10 +2,10 @@ package control
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 
 	"github.com/cactus/go-statsd-client/statsd"
+	"github.com/twitchscience/aws_utils/logger"
 	"github.com/zenazn/goji/web"
 )
 
@@ -65,7 +65,7 @@ func (ch *Handler) ForceIngest(c web.C, w http.ResponseWriter, r *http.Request) 
 	}
 	err = ch.stats.Inc("force_ingest."+table, 1, 1.0)
 	if err != nil {
-		log.Printf("Error sending force_ingest message to statsd")
+		logger.WithError(err).Printf("Error sending force_ingest message to statsd")
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -86,9 +86,9 @@ func (ch *Handler) GetPendingTables(c web.C, w http.ResponseWriter, r *http.Requ
 	}
 	err = ch.stats.Inc("get_pending_tables", 1, 1.0)
 	if err != nil {
-		log.Printf("Error sending get_pending_tables message to statsd")
+		logger.WithError(err).Error("Error sending get_pending_tables message to statsd")
 	}
-	log.Printf("Retrieved pending tables: %v.\n", pendingTables)
+	logger.WithField("pendingTables", pendingTables).Infof("Retrieved pending tables")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, err = w.Write(js)
