@@ -80,8 +80,8 @@
     },
     {
       "type": "file",
-      "source": "build/config/cloudwatchlogs.conf",
-      "destination": "/opt/science/{{user `project`}}/cloudwatchlogs.conf"
+      "source": "build/config/cloudwatchlogs.conf.template",
+      "destination": "/opt/science/{{user `project`}}/cloudwatchlogs.conf.template"
     },
     {
       "type": "shell",
@@ -94,9 +94,7 @@
         "sudo ln -s /opt/science/{{user `project`}}/nginx.conf /etc/nginx/sites-enabled/{{user `project`}}",
 
         "sudo chmod +x /opt/science/{{user `project`}}/bin/*",
-        "for f in /opt/science/{{user `project`}}/upstart/*.conf; do sudo ln -s $f /etc/init/$(basename $f); done",
-
-        "sudo mv /opt/science/{{user `project`}}/cloudwatchlogs.conf /var/awslogs/etc/config"
+        "for f in /opt/science/{{user `project`}}/upstart/*.conf; do sudo ln -s $f /etc/init/$(basename $f); done"
       ]
     }
   ]

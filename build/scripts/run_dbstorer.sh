@@ -2,7 +2,6 @@
 set -e -u -o pipefail
 
 cd -- "$(dirname -- "$0")"
-eval "$(curl 169.254.169.254/latest/user-data/)"
 export HOST="$(curl 169.254.169.254/latest/meta-data/hostname)"
 export STATSD_HOSTPORT="localhost:8125"
 export CONFIG_PREFIX="s3://$S3_CONFIG_BUCKET/$VPC_SUBNET_TAG/$CLOUD_APP/$CLOUD_ENVIRONMENT"
