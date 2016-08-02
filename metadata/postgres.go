@@ -41,7 +41,8 @@ type postgresBackend struct {
 }
 
 var (
-	errorNoLoads          = errors.New("No loads were found with that manifest id")
+	errorNoTsvs           = errors.New("No tsvs were found with that manifest id")
+	errorNoLoads          = errors.New("Found no loads to do")
 	tableToLoadSearchSize = 50
 	maxLoadRetryCount     int
 	dbRetryCount          int
@@ -456,7 +457,7 @@ LIMIT $3
 	defer func() {
 		err = rows.Close()
 		if err != nil {
-			logger.WithError(err).Error("Error closing rows for findTableVersionToLoad")
+			logger.WithError(err).Error("Error closing rows")
 		}
 	}()
 
@@ -473,11 +474,13 @@ LIMIT $3
 		}
 	}
 	if !found {
-		return "", -1, fmt.Errorf("Searched %d (table, version) pairs to load and found none appropriate.", tableToLoadSearchSize)
+		logger.Info("Found no loads to do")
+		return "", -1, errorNoLoads
 	}
 	return table, version, nil
 }
 
+// fetchLoad returns the next load to do, or nil if there is no load available.
 func (b *postgresBackend) fetchLoad() (*LoadManifest, error) {
 	tx, err := b.db.Begin()
 	if err != nil {
@@ -502,6 +505,9 @@ func (b *postgresBackend) fetchLoad() (*LoadManifest, error) {
 
 	table, version, err := b.findTableVersionToLoad(tx)
 	if err != nil {
+		if err == errorNoLoads {
+			return nil, tx.Rollback()
+		}
 		return nil, rollbackAndError(tx, err)
 	}
 
@@ -522,7 +528,7 @@ func (b *postgresBackend) fetchLoad() (*LoadManifest, error) {
 
 	tsv, err := getLoadManifest(tx, manifestUUID)
 	if err != nil {
-		if err == errorNoLoads {
+		if err == errorNoTsvs {
 			return nil, tx.Rollback()
 		}
 		return nil, rollbackAndError(tx, err)
@@ -558,7 +564,7 @@ func getLoadManifest(tx *sql.Tx, manifestUUID string) (*LoadManifest, error) {
 	}
 
 	if len(manifest.Loads) == 0 {
-		return nil, errorNoLoads
+		return nil, errorNoTsvs
 	}
 
 	manifest.TableName = manifest.Loads[0].TableName

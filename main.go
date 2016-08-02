@@ -94,7 +94,6 @@ func startWorkers(s3Uploader s3manageriface.UploaderAPI, b metadata.Backend, sta
 }
 
 func init() {
-	logger.Init("info")
 	flag.DurationVar(&migratorPollPeriod, "migratorPollPeriod", time.Minute, "the period betwen each poll the migrator does of ingesterdb for new versions to migrate to")
 	flag.StringVar(&statsPrefix, "statsPrefix", "ingester", "the prefix to statsd")
 	flag.StringVar(&pgConfig.DatabaseURL, "databaseURL", "", "Postgres-scheme url for the RDS instance")
@@ -120,6 +119,8 @@ func main() {
 	}
 
 	logger.InitWithRollbar("info", rollbarToken, rollbarEnvironment)
+	logger.CaptureDefault()
+	logger.Info("starting")
 	defer logger.LogPanic()
 
 	session := session.New()
