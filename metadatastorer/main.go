@@ -41,7 +41,7 @@ type rdsPipeHandler struct {
 
 func init() {
 	flag.StringVar(&pgConfig.DatabaseURL, "databaseURL", "", "Postgres-scheme url for the RDS instance")
-	flag.StringVar(&statsPrefix, "statsPrefix", "dbstorer", "the prefix to statsd")
+	flag.StringVar(&statsPrefix, "statsPrefix", "metadatastorer", "the prefix to statsd")
 	flag.IntVar(&pgConfig.MaxConnections, "maxDBConnections", 5, "Max number of database connections to open")
 	flag.DurationVar(&sqsPollWait, "sqsPollWait", time.Second*30, "Number of seconds to wait between polling SQS")
 	flag.StringVar(&sqsQueueName, "sqsQueueName", "", "Name of sqs queue to list for events on")

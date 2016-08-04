@@ -11,7 +11,7 @@ export AWS_DEFAULT_REGION=$AWS_REGION # aws-cli uses AWS_DEFAULT_REGION, aws-sdk
 aws s3 cp "$CONFIG_PREFIX/conf.sh" conf.sh
 source conf.sh
 
-exec ./rs_ingester \
+exec ./rsloadmanager \
   -n_workers 5 \
   -statsPrefix="${CLOUD_APP}.${CLOUD_DEV_PHASE:-${CLOUD_ENVIRONMENT}}.${EC2_REGION}.${CLOUD_AUTO_SCALE_GROUP##*-}" \
   -databaseURL="${INGESTER_DB_URL}" \

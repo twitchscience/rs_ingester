@@ -12,8 +12,8 @@ export AWS_DEFAULT_REGION=$AWS_REGION # aws-cli uses AWS_DEFAULT_REGION, aws-sdk
 aws s3 cp "$CONFIG_PREFIX/conf.sh" conf.sh
 source conf.sh
 
-exec ./dbstorer \
-  -statsPrefix="${CLOUD_APP}-dbstorer.${CLOUD_DEV_PHASE:-${CLOUD_ENVIRONMENT}}.${EC2_REGION}.${CLOUD_AUTO_SCALE_GROUP##*-}" \
+exec ./metadatastorer \
+  -statsPrefix="${CLOUD_APP}-metadatastorer.${CLOUD_DEV_PHASE:-${CLOUD_ENVIRONMENT}}.${EC2_REGION}.${CLOUD_AUTO_SCALE_GROUP##*-}" \
   -databaseURL="${INGESTER_DB_URL}" \
   -sqsQueueName="${PROCESSED_FILES_SQS_QUEUE}" \
   -sqsPollWait="${SQS_POLL_WAIT}" \

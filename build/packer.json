@@ -46,12 +46,12 @@
     {
       "type": "file",
       "source": "{{user `binary_dir`}}/rs_ingester",
-      "destination": "/opt/science/{{user `project`}}/bin/rs_ingester"
+      "destination": "/opt/science/{{user `project`}}/bin/rsloadmanager"
     },
     {
       "type": "file",
-      "source": "{{user `binary_dir`}}/dbstorer",
-      "destination": "/opt/science/{{user `project`}}/bin/dbstorer"
+      "source": "{{user `binary_dir`}}/metadatastorer",
+      "destination": "/opt/science/{{user `project`}}/bin/metadatastorer"
     },
     {
       "type": "file",
