@@ -9,7 +9,6 @@ import (
 	"github.com/twitchscience/rs_ingester/backend"
 	"github.com/twitchscience/rs_ingester/blueprint"
 	"github.com/twitchscience/rs_ingester/metadata"
-	"github.com/twitchscience/rs_ingester/scoop"
 	"github.com/twitchscience/rs_ingester/versions"
 )
 
@@ -27,20 +26,18 @@ type Migrator struct {
 	closer              chan bool
 	oldVersionWaitClose chan bool
 	wg                  sync.WaitGroup
-	scoopClient         scoop.Client
 	pollPeriod          time.Duration
 	waitProcessorPeriod time.Duration
 	migrationStarted    map[tableVersion]time.Time
 }
 
 // New returns a new Migrator for migrating schemas
-func New(aceBack backend.Backend, metaBack metadata.Reader, blueprintClient blueprint.Client, scoopClient scoop.Client, versions versions.GetterSetter, pollPeriod time.Duration, waitProcessorPeriod time.Duration) *Migrator {
+func New(aceBack backend.Backend, metaBack metadata.Reader, blueprintClient blueprint.Client, versions versions.GetterSetter, pollPeriod time.Duration, waitProcessorPeriod time.Duration) *Migrator {
 	m := Migrator{
 		versions:            versions,
 		aceBackend:          aceBack,
 		metaBackend:         metaBack,
 		bpClient:            blueprintClient,
-		scoopClient:         scoopClient,
 		closer:              make(chan bool),
 		oldVersionWaitClose: make(chan bool),
 		pollPeriod:          pollPeriod,
@@ -93,10 +90,6 @@ func (m *Migrator) migrate(table string, to int) error {
 		err = m.aceBackend.CreateTable(table, ops)
 		if err != nil {
 			return err
-		}
-		err = m.scoopClient.EnforcePermissions()
-		if err != nil {
-			logger.WithError(err).Error("Problem enforcing permissions through scoop")
 		}
 	} else {
 		// to migrate, first we wait until processor finishes the old version...

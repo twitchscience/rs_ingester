@@ -19,7 +19,6 @@ import (
 	"github.com/twitchscience/rs_ingester/blueprint"
 	"github.com/twitchscience/rs_ingester/control"
 	"github.com/twitchscience/rs_ingester/migrator"
-	"github.com/twitchscience/rs_ingester/scoop"
 	"github.com/twitchscience/rs_ingester/versions"
 
 	"github.com/twitchscience/rs_ingester/backend"
@@ -41,7 +40,6 @@ var (
 	rollbarToken        string
 	rollbarEnvironment  string
 	blueprintHost       string
-	scoopURL            string
 	pgConfig            metadata.PGConfig
 	loadAgeSeconds      int
 	workerGroup         sync.WaitGroup
@@ -105,7 +103,6 @@ func init() {
 	flag.IntVar(&loadAgeSeconds, "loadAgeSeconds", 1800, "Max age of tsvs in queue before a load into redshift is triggered")
 	flag.IntVar(&poolSize, "n_workers", 5, "Number of load workers and therefore redshift connections. Set to 0 to turn off ingests (COPYs).")
 	flag.StringVar(&blueprintHost, "blueprint_host", "", "Host name (and optionally :port) for communicating with blueprint")
-	flag.StringVar(&scoopURL, "scoopURL", "", "Base url of scoop (protocol and host)")
 	flag.StringVar(&rsURL, "rsURL", "", "URL for Redshift")
 	flag.StringVar(&rollbarToken, "rollbarToken", "", "Rollbar post_server_item token")
 	flag.StringVar(&rollbarEnvironment, "rollbarEnvironment", "", "Rollbar environment")
@@ -163,8 +160,7 @@ func main() {
 	}
 
 	blueprintClient := blueprint.New(blueprintHost)
-	scoopClient := scoop.New(scoopURL)
-	migrator := migrator.New(aceBackend, metaReader, blueprintClient, scoopClient, tableVersions, migratorPollPeriod, waitProcessorPeriod)
+	migrator := migrator.New(aceBackend, metaReader, blueprintClient, tableVersions, migratorPollPeriod, waitProcessorPeriod)
 
 	hcBackend := healthcheck.NewBackend(rsConnection, metaReader)
 	hcHandler := healthcheck.NewHandler(hcBackend)
