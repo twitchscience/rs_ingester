@@ -355,7 +355,7 @@ func (r *RedshiftBackend) ApplyOperations(table string, ops []scoop_protocol.Ope
 					return err
 				}
 			case "delete":
-				query := fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", pq.QuoteIdentifier(table), pq.QuoteIdentifier(mStep.Outbound))
+				query := fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s CASCADE", pq.QuoteIdentifier(table), pq.QuoteIdentifier(mStep.Outbound))
 				_, err = tx.Exec(query)
 				if err != nil {
 					return err
