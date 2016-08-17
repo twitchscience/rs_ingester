@@ -469,7 +469,10 @@ LIMIT $3
 			return "", -1, fmt.Errorf("Error parsing rows when looking for potential tables to load: %v", err)
 		}
 		currentVersion, exists := b.versions.Get(table)
-		if exists && version <= currentVersion {
+		if exists && version < currentVersion {
+			logger.WithField("table", table).WithField("outdatedVersion", version).WithField("currentVersion", currentVersion).Error("Found a TSV with an outdated version")
+		}
+		if exists && version == currentVersion {
 			found = true
 		}
 	}
@@ -514,7 +517,7 @@ func (b *postgresBackend) fetchLoad() (*LoadManifest, error) {
 	_, err = tx.Exec(
 		`UPDATE `+constants.TsvTable+` SET manifest_uuid = $1
          WHERE tablename = $2
-		 AND tableversion <= $3
+         AND tableversion = $3
          AND manifest_uuid IS NULL
         `,
 		manifestUUID,
@@ -623,4 +626,47 @@ func rollbackAndError(tx *sql.Tx, err error) error {
 		return fmt.Errorf("Rollback error (%v); previous error (%v)", newErr, err)
 	}
 	return err
+}
+
+func (b *postgresBackend) TSVVersionExists(table string, version int) (bool, error) {
+	row := b.db.QueryRow("SELECT exists(SELECT 1 FROM "+constants.TsvTable+" WHERE tablename = $1 AND tableversion = $2);",
+		table,
+		version)
+	var exists bool
+	err := row.Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("Got error fetching amount of TSVs in a version: %v", err)
+	}
+	return exists, nil
+}
+
+func (b *postgresBackend) PrioritizeTSVVersion(table string, version int) error {
+	_, err := b.db.Exec(`UPDATE `+constants.TsvTable+` SET ts=to_timestamp(0) WHERE manifest_uuid IS NULL AND tablename = $1 AND tableversion = $2;`,
+		table,
+		version)
+	return err
+}
+
+func (b *postgresBackend) GetPendingTables() ([]Event, error) {
+	var events []Event
+
+	rows, err := b.db.Query(`SELECT tablename, count(*) AS cnt, min(ts) FROM ` + constants.TsvTable + ` WHERE manifest_uuid IS NULL GROUP BY tablename`)
+	if err != nil {
+		return events, fmt.Errorf("Error executing query: %v", err)
+	}
+	defer func() {
+		err = rows.Close()
+		if err != nil {
+			logger.WithError(err).Error("Error closing rows")
+		}
+	}()
+	for rows.Next() {
+		var e Event
+		err := rows.Scan(&e.Name, &e.Count, &e.Timestamp)
+		if err != nil {
+			return events, fmt.Errorf("Error reading row: %v", err)
+		}
+		events = append(events, e)
+	}
+	return events, nil
 }

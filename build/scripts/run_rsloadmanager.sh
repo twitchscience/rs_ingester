@@ -20,6 +20,7 @@ exec ./rsloadmanager \
   -loadAgeSeconds="${LOAD_AGE_SECONDS}" \
   -no_work_delay="${NO_WORK_DELAY}" \
   -migratorPollPeriod="${MIGRATOR_POLL_PERIOD}" \
+  -waitProcessorPeriod="${WAIT_PROCESSOR_PERIOD}" \
   -blueprint_host="${BLUEPRINT_HOST}" \
   -rsURL="${RS_URL}" \
   -rollbarToken="${ROLLBAR_TOKEN}" \

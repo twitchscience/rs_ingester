@@ -34,18 +34,19 @@ const (
 )
 
 var (
-	poolSize           int
-	statsPrefix        string
-	manifestBucket     string
-	rsURL              string
-	rollbarToken       string
-	rollbarEnvironment string
-	blueprintHost      string
-	scoopURL           string
-	pgConfig           metadata.PGConfig
-	loadAgeSeconds     int
-	workerGroup        sync.WaitGroup
-	migratorPollPeriod time.Duration
+	poolSize            int
+	statsPrefix         string
+	manifestBucket      string
+	rsURL               string
+	rollbarToken        string
+	rollbarEnvironment  string
+	blueprintHost       string
+	scoopURL            string
+	pgConfig            metadata.PGConfig
+	loadAgeSeconds      int
+	workerGroup         sync.WaitGroup
+	waitProcessorPeriod time.Duration
+	migratorPollPeriod  time.Duration
 )
 
 type loadWorker struct {
@@ -95,6 +96,7 @@ func startWorkers(s3Uploader s3manageriface.UploaderAPI, b metadata.Backend, sta
 
 func init() {
 	flag.DurationVar(&migratorPollPeriod, "migratorPollPeriod", time.Minute, "the period betwen each poll the migrator does of ingesterdb for new versions to migrate to")
+	flag.DurationVar(&waitProcessorPeriod, "waitProcessorPeriod", time.Minute*3, "the period we wait for processor to process all old version TSVs")
 	flag.StringVar(&statsPrefix, "statsPrefix", "ingester", "the prefix to statsd")
 	flag.StringVar(&pgConfig.DatabaseURL, "databaseURL", "", "Postgres-scheme url for the RDS instance")
 	flag.StringVar(&manifestBucket, "manifestBucket", "", "S3 bucket for manifests.")
@@ -162,7 +164,7 @@ func main() {
 
 	blueprintClient := blueprint.New(blueprintHost)
 	scoopClient := scoop.New(scoopURL)
-	migrator := migrator.New(aceBackend, metaReader, blueprintClient, scoopClient, tableVersions, migratorPollPeriod)
+	migrator := migrator.New(aceBackend, metaReader, blueprintClient, scoopClient, tableVersions, migratorPollPeriod, waitProcessorPeriod)
 
 	hcBackend := healthcheck.NewBackend(rsConnection, metaReader)
 	hcHandler := healthcheck.NewHandler(hcBackend)
@@ -170,11 +172,7 @@ func main() {
 	serveMux := http.NewServeMux()
 	serveMux.Handle("/health", healthcheck.NewHealthRouter(hcHandler))
 
-	db, err := metadata.ConnectToDB(pgConfig.DatabaseURL, pgConfig.MaxConnections)
-	if err != nil {
-		logger.WithError(err).Fatal("Failed to set up postgres connection")
-	}
-	controlBackend := control.NewControlBackend(db, tableVersions)
+	controlBackend := control.NewControlBackend(metaReader, tableVersions)
 	controlHandler := control.NewControlHandler(controlBackend, stats)
 
 	serveMux.Handle("/control/ingest", control.NewControlRouter(controlHandler))

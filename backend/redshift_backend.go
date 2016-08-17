@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -30,6 +31,20 @@ var (
 type RedshiftBackend struct {
 	connection  *redshift.RSConnection
 	credentials *credentials.Credentials
+	tableLocks  map[string]*sync.Mutex
+}
+
+func buildTableLocks(conn *redshift.RSConnection) (map[string]*sync.Mutex, error) {
+	locks := make(map[string]*sync.Mutex)
+	currentTableVersions, err := getTableVersions(conn)
+	if err != nil {
+		return nil, err
+	}
+	for table := range currentTableVersions {
+		locks[table] = &sync.Mutex{}
+		logger.Info("Created %s Lock", table)
+	}
+	return locks, nil
 }
 
 //BuildRedshiftBackend builds a new redshift backend by also creating a new rsConnection
@@ -41,9 +56,14 @@ func BuildRedshiftBackend(credentials *credentials.Credentials, poolSize int, rs
 	for i := 0; i < 5; i++ {
 		go conn.Listen()
 	}
+	tableLocks, err := buildTableLocks(conn)
+	if err != nil {
+		return nil, err
+	}
 	return &RedshiftBackend{
 		connection:  conn,
 		credentials: credentials,
+		tableLocks:  tableLocks,
 	}, nil
 }
 
@@ -78,6 +98,13 @@ func (r *RedshiftBackend) Copy(rc *scoop_protocol.RowCopyRequest) error {
 
 //ManifestCopy makes a ManifestRowCopyRequest and returns the function that executes the request
 func (r *RedshiftBackend) ManifestCopy(rc *scoop_protocol.ManifestRowCopyRequest) error {
+	lock, exist := r.tableLocks[rc.TableName]
+	if !exist {
+		return fmt.Errorf("Lock for %s did not exist", rc.TableName)
+	}
+	lock.Lock()
+	defer lock.Unlock()
+
 	return r.connection.ExecFnInTransaction(redshift.ManifestRowCopyRequest{
 		BuiltOn:     time.Now(),
 		Name:        rc.TableName,
@@ -188,10 +215,9 @@ func (r *RedshiftBackend) Schema(event string) (*scoop_protocol.Config, error) {
 	return &cfg, nil
 }
 
-// TableVersions returns the event tables with version numbers
-func (r *RedshiftBackend) TableVersions() (map[string]int, error) {
+func getTableVersions(conn *redshift.RSConnection) (map[string]int, error) {
 	versions := make(map[string]int)
-	rows, err := r.connection.Conn.Query(`SELECT name, MAX(version) FROM infra.table_version GROUP BY name;`)
+	rows, err := conn.Conn.Query(`SELECT name, MAX(version) FROM infra.table_version GROUP BY name;`)
 	if err != nil {
 		return nil, fmt.Errorf("Error SELECTing the table versions from ace's infra.table_version: %v", err)
 	}
@@ -210,6 +236,11 @@ func (r *RedshiftBackend) TableVersions() (map[string]int, error) {
 		versions[table] = version
 	}
 	return versions, nil
+}
+
+// TableVersions returns the event tables with version numbers
+func (r *RedshiftBackend) TableVersions() (map[string]int, error) {
+	return getTableVersions(r.connection)
 }
 
 //NewUser returns a function that executes a new uesr operation on redshift
@@ -302,6 +333,13 @@ func expectVersion(tx *sql.Tx, table string, version int) error {
 
 //ApplyOperations applies operations to a table and updates the table's version
 func (r *RedshiftBackend) ApplyOperations(table string, ops []scoop_protocol.Operation, targetVersion int) error {
+	lock, exist := r.tableLocks[table]
+	if !exist {
+		return fmt.Errorf("Lock for %s did not exist", table)
+	}
+	lock.Lock()
+	defer lock.Unlock()
+
 	return r.connection.ExecFnInTransaction(func(tx *sql.Tx) error {
 		err := expectVersion(tx, table, targetVersion-1)
 		if err != nil {
@@ -312,6 +350,12 @@ func (r *RedshiftBackend) ApplyOperations(table string, ops []scoop_protocol.Ope
 			switch mStep.Action {
 			case "add":
 				query := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s", pq.QuoteIdentifier(table), mStep.getCreationForm())
+				_, err = tx.Exec(query)
+				if err != nil {
+					return err
+				}
+			case "delete":
+				query := fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", pq.QuoteIdentifier(table), pq.QuoteIdentifier(mStep.Outbound))
 				_, err = tx.Exec(query)
 				if err != nil {
 					return err
@@ -372,6 +416,7 @@ func (r *RedshiftBackend) CreateTable(table string, ops []scoop_protocol.Operati
 		if err != nil {
 			return fmt.Errorf("Error CREATEing TABLE %s: %v", table, err)
 		}
+		r.tableLocks[table] = &sync.Mutex{}
 		query = "INSERT INTO infra.table_version (name, version, ts) VALUES ($1, 0, GETDATE())"
 		_, err = tx.Exec(query, table)
 		if err != nil {

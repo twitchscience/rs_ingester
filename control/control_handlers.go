@@ -6,6 +6,7 @@ import (
 
 	"github.com/cactus/go-statsd-client/statsd"
 	"github.com/twitchscience/aws_utils/logger"
+	"github.com/twitchscience/rs_ingester/metadata"
 	"github.com/zenazn/goji/web"
 )
 
@@ -79,7 +80,7 @@ func (ch *Handler) GetPendingTables(c web.C, w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	js, err := json.Marshal(struct{ Events []Event }{pendingTables})
+	js, err := json.Marshal(struct{ Events []metadata.Event }{pendingTables})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

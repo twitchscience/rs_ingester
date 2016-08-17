@@ -1,6 +1,10 @@
 package metadata
 
-import "github.com/twitchscience/scoop_protocol/scoop_protocol"
+import (
+	"time"
+
+	"github.com/twitchscience/scoop_protocol/scoop_protocol"
+)
 
 // Load represents a file that needs to be loaded
 type Load scoop_protocol.RowCopyRequest
@@ -16,6 +20,9 @@ type LoadManifest struct {
 type Reader interface {
 	Versions() (map[string]int, error)
 	PingDB() error
+	TSVVersionExists(table string, version int) (bool, error)
+	PrioritizeTSVVersion(table string, version int) error
+	GetPendingTables() ([]Event, error)
 }
 
 // Backend specifies the interface for load state
@@ -31,4 +38,11 @@ type Backend interface {
 type Storer interface {
 	InsertLoad(load *Load) error
 	Close()
+}
+
+// Event represents an event, or table, that needs to be loaded
+type Event struct {
+	Name      string
+	Count     int
+	Timestamp time.Time
 }
