@@ -25,3 +25,5 @@ exec ./rsloadmanager \
   -rsURL="${RS_URL}" \
   -rollbarToken="${ROLLBAR_TOKEN}" \
   -rollbarEnvironment="${CLOUD_ENVIRONMENT}" \
+  -offpeakStartHour="${OFFPEAK_START_HOUR}" \
+  -offpeakDurationHours="${OFFPEAK_DURATION_HOURS}" \

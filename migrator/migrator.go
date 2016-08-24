@@ -19,30 +19,41 @@ type tableVersion struct {
 
 // Migrator manages the migration of Ace as new versioned tsvs come in.
 type Migrator struct {
-	versions            versions.GetterSetter
-	aceBackend          backend.Backend
-	metaBackend         metadata.Reader
-	bpClient            blueprint.Client
-	closer              chan bool
-	oldVersionWaitClose chan bool
-	wg                  sync.WaitGroup
-	pollPeriod          time.Duration
-	waitProcessorPeriod time.Duration
-	migrationStarted    map[tableVersion]time.Time
+	versions             versions.GetterSetter
+	aceBackend           backend.Backend
+	metaBackend          metadata.Reader
+	bpClient             blueprint.Client
+	closer               chan bool
+	oldVersionWaitClose  chan bool
+	wg                   sync.WaitGroup
+	pollPeriod           time.Duration
+	waitProcessorPeriod  time.Duration
+	migrationStarted     map[tableVersion]time.Time
+	offpeakStartHour     int
+	offpeakDurationHours int
 }
 
 // New returns a new Migrator for migrating schemas
-func New(aceBack backend.Backend, metaBack metadata.Reader, blueprintClient blueprint.Client, versions versions.GetterSetter, pollPeriod time.Duration, waitProcessorPeriod time.Duration) *Migrator {
+func New(aceBack backend.Backend,
+	metaBack metadata.Reader,
+	blueprintClient blueprint.Client,
+	versions versions.GetterSetter,
+	pollPeriod time.Duration,
+	waitProcessorPeriod time.Duration,
+	offpeakStartHour int,
+	offpeakDurationHours int) *Migrator {
 	m := Migrator{
-		versions:            versions,
-		aceBackend:          aceBack,
-		metaBackend:         metaBack,
-		bpClient:            blueprintClient,
-		closer:              make(chan bool),
-		oldVersionWaitClose: make(chan bool),
-		pollPeriod:          pollPeriod,
-		waitProcessorPeriod: waitProcessorPeriod,
-		migrationStarted:    make(map[tableVersion]time.Time),
+		versions:             versions,
+		aceBackend:           aceBack,
+		metaBackend:          metaBack,
+		bpClient:             blueprintClient,
+		closer:               make(chan bool),
+		oldVersionWaitClose:  make(chan bool),
+		pollPeriod:           pollPeriod,
+		waitProcessorPeriod:  waitProcessorPeriod,
+		migrationStarted:     make(map[tableVersion]time.Time),
+		offpeakStartHour:     offpeakStartHour,
+		offpeakDurationHours: offpeakDurationHours,
 	}
 
 	m.wg.Add(1)
@@ -128,6 +139,27 @@ func (m *Migrator) migrate(table string, to int) error {
 	return nil
 }
 
+func (m *Migrator) isOffPeakHours() bool {
+	currentHour := time.Now().Hour()
+	if m.offpeakStartHour+m.offpeakDurationHours <= 24 {
+		if (m.offpeakStartHour <= currentHour) &&
+			(currentHour < m.offpeakStartHour+m.offpeakDurationHours) {
+			return true
+		}
+		return false
+	}
+	// if duration bleeds into the new day, check the two segments before and after midnight
+	if (m.offpeakStartHour <= currentHour) &&
+		(currentHour < 24) {
+		return true
+	}
+	if (0 <= currentHour) &&
+		(currentHour < (m.offpeakStartHour+m.offpeakDurationHours)%24) {
+		return true
+	}
+	return false
+}
+
 func (m *Migrator) loop() {
 	logger.Info("Migrator started.")
 	defer logger.Info("Migrator stopped.")
@@ -147,6 +179,11 @@ func (m *Migrator) loop() {
 					newVersion = 0
 				} else {
 					newVersion = currentVersion + 1
+				}
+				// if not offpeak, don't migrate table, but still allow table creation
+				if newVersion > 0 && !m.isOffPeakHours() {
+					logger.WithField("table", table).WithField("version", newVersion).Infof("Not migrating; waiting until offpeak at %dh UTC", m.offpeakStartHour)
+					continue
 				}
 				err := m.migrate(table, newVersion)
 				if err != nil {

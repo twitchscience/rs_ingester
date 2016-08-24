@@ -33,18 +33,20 @@ const (
 )
 
 var (
-	poolSize            int
-	statsPrefix         string
-	manifestBucket      string
-	rsURL               string
-	rollbarToken        string
-	rollbarEnvironment  string
-	blueprintHost       string
-	pgConfig            metadata.PGConfig
-	loadAgeSeconds      int
-	workerGroup         sync.WaitGroup
-	waitProcessorPeriod time.Duration
-	migratorPollPeriod  time.Duration
+	poolSize             int
+	statsPrefix          string
+	manifestBucket       string
+	rsURL                string
+	rollbarToken         string
+	rollbarEnvironment   string
+	blueprintHost        string
+	pgConfig             metadata.PGConfig
+	loadAgeSeconds       int
+	workerGroup          sync.WaitGroup
+	waitProcessorPeriod  time.Duration
+	migratorPollPeriod   time.Duration
+	offpeakStartHour     int
+	offpeakDurationHours int
 )
 
 type loadWorker struct {
@@ -106,6 +108,8 @@ func init() {
 	flag.StringVar(&rsURL, "rsURL", "", "URL for Redshift")
 	flag.StringVar(&rollbarToken, "rollbarToken", "", "Rollbar post_server_item token")
 	flag.StringVar(&rollbarEnvironment, "rollbarEnvironment", "", "Rollbar environment")
+	flag.IntVar(&offpeakStartHour, "offpeakStartHour", 3, "Hour that offpeak period starts and migrations can happen, in UTC")
+	flag.IntVar(&offpeakDurationHours, "offpeakDurationHours", 8, "Duration of the offpeak migration period, in hours")
 }
 
 func main() {
@@ -160,7 +164,7 @@ func main() {
 	}
 
 	blueprintClient := blueprint.New(blueprintHost)
-	migrator := migrator.New(aceBackend, metaReader, blueprintClient, tableVersions, migratorPollPeriod, waitProcessorPeriod)
+	migrator := migrator.New(aceBackend, metaReader, blueprintClient, tableVersions, migratorPollPeriod, waitProcessorPeriod, offpeakStartHour, offpeakDurationHours)
 
 	hcBackend := healthcheck.NewBackend(rsConnection, metaReader)
 	hcHandler := healthcheck.NewHandler(hcBackend)
