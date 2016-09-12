@@ -8,8 +8,6 @@ import (
 //Backend is an interface that represents what operations on a DB must be available
 type Backend interface {
 	HealthCheck() error
-	Create(*scoop_protocol.Config) error
-	Update(*scoop_protocol.Config) error
 	Copy(*scoop_protocol.RowCopyRequest) error
 	LoadCheck(*scoop_protocol.LoadCheckRequest) (*scoop_protocol.LoadCheckResponse, error)
 	ManifestCopy(*scoop_protocol.ManifestRowCopyRequest) error

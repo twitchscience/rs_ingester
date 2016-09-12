@@ -71,9 +71,9 @@ to reach the next version. Example of the endpoint:
 GET http://<blueprint>/migration/minute-watched?to_version=1
 response body:
 [
-    {"Action":"add","Inbound":"time","Outbound":"time","ColumnType":"f@timestamp@unix","ColumnOptions":" sortkey"},
-    {"Action":"add","Inbound":"browser","Outbound":"browser","ColumnType":"varchar","ColumnOptions":"(180)"},
-    {"Action":"add","Inbound":"channel","Outbound":"channel","ColumnType":"varchar","ColumnOptions":"(25)"}
+    {"Action":"add","Name":"time","ActionMetadata":{"column_options":" sortkey","column_type":"f@timestamp@unix","inbound":"time"}
+    {"Action":"add","Name":"browser","ActionMetadata":{"column_options":"(180)","column_type":"varchar","inbound":"browser"}
+    {"Action":"add","Name":"channel","ActionMetadata":{"column_options":"(25)","column_type":"varchar","inbound":"channel"}
     ...
 ]
 ```

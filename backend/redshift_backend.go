@@ -73,19 +73,6 @@ func (r *RedshiftBackend) HealthCheck() error {
 	return err
 }
 
-//Create makes a TableCreateRequest and returns the transaction
-func (r *RedshiftBackend) Create(cfg *scoop_protocol.Config) error {
-	createTable := &redshift.TableCreateRequest{
-		BuiltOn: time.Now(),
-		Table:   cfg,
-	}
-	createComment := &redshift.CreateTableCommentRequest{
-		BuiltOn: time.Now(),
-		Config:  cfg,
-	}
-	return r.connection.ExecInTransaction(createTable, createComment)
-}
-
 //Copy makes a RowCopyRequest and executes the request
 func (r *RedshiftBackend) Copy(rc *scoop_protocol.RowCopyRequest) error {
 	return r.connection.ExecFnInTransaction(redshift.RowCopyRequest{
@@ -121,52 +108,6 @@ func (r *RedshiftBackend) LoadCheck(req *scoop_protocol.LoadCheckRequest) (*scoo
 		return
 	})
 	return resp, err
-}
-
-func performColumnCheck(current, additions *scoop_protocol.Config) error {
-	for _, col := range current.Columns {
-		for _, add := range additions.Columns {
-			if col.OutboundName == add.OutboundName {
-				return fmt.Errorf("Event: %s already has Property: %s", current.EventName, col.OutboundName)
-			}
-		}
-	}
-	return nil
-}
-
-//Update runs the update table operation on redshift
-func (r *RedshiftBackend) Update(additions *scoop_protocol.Config) error {
-	return r.connection.ExecFnInTransaction(func(tx *sql.Tx) error {
-		currentCfg, err := r.Schema(additions.EventName)
-		if err != nil {
-			return err
-		}
-
-		if err := performColumnCheck(currentCfg, additions); err != nil {
-			return err
-		}
-
-		// preflight checks good, now alter table
-		updateTable := &redshift.TableAlterRequest{
-			TableName: additions.EventName,
-			Additions: additions.Columns,
-		}
-		for _, query := range updateTable.ProduceQueries() {
-			if _, err := tx.Exec(query); err != nil {
-				return err
-			}
-		}
-
-		// update comment
-		currentCfg.Columns = append(currentCfg.Columns, additions.Columns...)
-		createComment := &redshift.CreateTableCommentRequest{
-			Config: currentCfg,
-		}
-		if _, err := tx.Exec(createComment.GetExec()); err != nil {
-			return err
-		}
-		return nil
-	})
 }
 
 //Query allows for the execution of an arbitrary QueryRequest
@@ -290,8 +231,8 @@ func parseFunctionalType(s string) (string, bool) {
 }
 
 func (m *migrationStep) getCreationForm() string {
-	tranType, isTranslated := transformerTypeMap[m.ColumnType]
-	funcType, isFunc := parseFunctionalType(m.ColumnType)
+	tranType, isTranslated := transformerTypeMap[m.ActionMetadata["column_type"]]
+	funcType, isFunc := parseFunctionalType(m.ActionMetadata["column_type"])
 
 	var colType string
 	if isTranslated {
@@ -299,15 +240,15 @@ func (m *migrationStep) getCreationForm() string {
 	} else if isFunc {
 		colType = funcType
 	} else {
-		colType = m.ColumnType
+		colType = m.ActionMetadata["column_type"]
 	}
 
 	maybeColOpts := ""
-	if len(m.ColumnOptions) > 1 {
-		maybeColOpts = m.ColumnOptions
+	if len(m.ActionMetadata["column_options"]) > 1 {
+		maybeColOpts = m.ActionMetadata["column_options"]
 	}
 
-	return fmt.Sprintf("%s %s%s", pq.QuoteIdentifier(m.Outbound), colType, maybeColOpts)
+	return fmt.Sprintf("%s %s%s", pq.QuoteIdentifier(m.Name), colType, maybeColOpts)
 }
 
 // expectVersion checks to see if the version in infra.table_version is what was
@@ -346,22 +287,26 @@ func (r *RedshiftBackend) ApplyOperations(table string, ops []scoop_protocol.Ope
 			return err
 		}
 		for _, op := range ops {
-			mStep := migrationStep(op)
-			switch mStep.Action {
-			case "add":
+			switch op.Action {
+			case scoop_protocol.ADD:
+				mStep := migrationStep(op)
 				query := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s", pq.QuoteIdentifier(table), mStep.getCreationForm())
 				_, err = tx.Exec(query)
-				if err != nil {
-					return err
-				}
-			case "delete":
-				query := fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s CASCADE", pq.QuoteIdentifier(table), pq.QuoteIdentifier(mStep.Outbound))
+			case scoop_protocol.DELETE:
+				query := fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s CASCADE", pq.QuoteIdentifier(table), pq.QuoteIdentifier(op.Name))
 				_, err = tx.Exec(query)
-				if err != nil {
-					return err
-				}
+			case scoop_protocol.RENAME:
+				query := fmt.Sprintf("ALTER TABLE %s RENAME COLUMN %s TO %s",
+					pq.QuoteIdentifier(table),
+					pq.QuoteIdentifier(op.Name),
+					pq.QuoteIdentifier(op.ActionMetadata["new_outbound"]),
+				)
+				_, err = tx.Exec(query)
 			default:
-				return fmt.Errorf("Unknown operation action: %s", mStep.Action)
+				err = fmt.Errorf("Unknown operation action: %s", op.Action)
+			}
+			if err != nil {
+				return err
 			}
 		}
 		query := fmt.Sprintf("INSERT INTO infra.table_version (name, version, ts) VALUES ($1, $2, GETDATE())")
@@ -379,8 +324,13 @@ type newTable []scoop_protocol.Operation
 //are add column operations
 func buildNewTable(ops []scoop_protocol.Operation) (newTable, error) {
 	for _, op := range ops {
-		if op.Action != "add" {
-			return nil, fmt.Errorf("newTable must be made out of action=add operations, received action=%s", op.Action)
+		if op.Action != scoop_protocol.ADD {
+			return nil, fmt.Errorf("newTable must be made out of action=%s operations, received action=%s", scoop_protocol.ADD, op.Action)
+		}
+		_, cOptions := op.ActionMetadata["column_options"]
+		_, cType := op.ActionMetadata["column_type"]
+		if !cOptions || !cType {
+			return nil, fmt.Errorf("newTable must have actionmetadata including 'column_options' and 'column_type'")
 		}
 	}
 	return newTable(ops), nil

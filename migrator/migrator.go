@@ -81,15 +81,18 @@ func (m *Migrator) findTablesToMigrate() ([]string, error) {
 	return tables, nil
 }
 
-func (m *Migrator) isOldVersionCleared(table string, to int) (bool, error) {
-	exists, err := m.metaBackend.TSVVersionExists(table, to-1)
+//isOldVersionCleared checks to see if there are any tsvs for the given table and
+//version still in queue to be loaded. If there are, it prioritizes those tsvs
+//to be loaded.
+func (m *Migrator) isOldVersionCleared(table string, version int) (bool, error) {
+	exists, err := m.metaBackend.TSVVersionExists(table, version)
 	if err != nil {
 		return false, err
 	}
 	if !exists {
 		return true, nil
 	}
-	return false, m.metaBackend.PrioritizeTSVVersion(table, to-1)
+	return false, m.metaBackend.PrioritizeTSVVersion(table, version-1)
 }
 
 func (m *Migrator) migrate(table string, to int) error {
@@ -117,7 +120,7 @@ func (m *Migrator) migrate(table string, to int) error {
 		}
 
 		// wait for all the old version TSVs to ingest before proceeding
-		cleared, err := m.isOldVersionCleared(table, to)
+		cleared, err := m.isOldVersionCleared(table, to-1)
 		if err != nil {
 			return fmt.Errorf("Error waiting for old version to clear: %v", err)
 		}
