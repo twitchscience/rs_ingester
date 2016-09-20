@@ -3,7 +3,6 @@ set -e -u -o pipefail
 
 cd -- "$(dirname -- "$0")"
 export HOST="$(curl 169.254.169.254/latest/meta-data/hostname)"
-export STATSD_HOSTPORT="localhost:8125"
 export CONFIG_PREFIX="s3://$S3_CONFIG_BUCKET/$VPC_SUBNET_TAG/$CLOUD_APP/$CLOUD_ENVIRONMENT"
 SQS_POLL_WAIT="30s"  # Overidable in conf.sh
 LISTENER_COUNT=5  # Overidable in conf.sh
@@ -13,7 +12,7 @@ aws s3 cp "$CONFIG_PREFIX/conf.sh" conf.sh
 source conf.sh
 
 exec ./metadatastorer \
-  -statsPrefix="${CLOUD_APP}-metadatastorer.${CLOUD_DEV_PHASE:-${CLOUD_ENVIRONMENT}}.${EC2_REGION}.${CLOUD_AUTO_SCALE_GROUP##*-}" \
+  -statsPrefix="${OWNER}.${CLOUD_APP}-metadatastorer.${CLOUD_DEV_PHASE:-${CLOUD_ENVIRONMENT}}.${EC2_REGION}.${CLOUD_AUTO_SCALE_GROUP##*-}" \
   -databaseURL="${INGESTER_DB_URL}" \
   -sqsQueueName="${PROCESSED_FILES_SQS_QUEUE}" \
   -sqsPollWait="${SQS_POLL_WAIT}" \

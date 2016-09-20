@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -54,7 +55,7 @@ type loadWorker struct {
 	Loader          loadclient.Loader
 }
 
-func (i *loadWorker) Work() {
+func (i *loadWorker) Work(stats statsd.Statter) {
 
 	c := i.MetadataBackend.LoadReady()
 	for load := range c {
@@ -69,11 +70,29 @@ func (i *loadWorker) Work() {
 			}
 			logger.WithError(err).WithField("retryable", err.Retryable()).
 				WithField("loadUUID", load.UUID).Error("Error loading files into table.")
+
+			statsdErr := stats.Inc("manifest_load.failures", 1, 1.0)
+			if statsdErr != nil {
+				logger.WithError(statsdErr).Printf("Error sending manifest_load.failures message to statsd")
+			}
+
 			continue
 		}
 		logger.WithField("loadUUID", load.UUID).
 			WithField("table", load.TableName).Info("Loaded manifest into table")
 		i.MetadataBackend.LoadDone(load.UUID)
+
+		statsdErr := stats.Inc("manifest_load.count", 1, 1.0)
+		if statsdErr != nil {
+			logger.WithError(statsdErr).Printf("Error sending manifest_load.count message to statsd")
+		}
+		for _, tsv := range load.Loads {
+			statsdEvent := fmt.Sprintf("tsv_files.%s.loaded", tsv.TableName)
+			statsdErr = stats.Inc(statsdEvent, 1, 1.0)
+			if statsdErr != nil {
+				logger.WithError(statsdErr).Printf("Error sending %s message to statsd", statsdEvent)
+			}
+		}
 	}
 	workerGroup.Done()
 }
@@ -89,7 +108,7 @@ func startWorkers(s3Uploader s3manageriface.UploaderAPI, b metadata.Backend, sta
 		workerGroup.Add(1)
 		index := i
 		logger.Go(func() {
-			workers[index].Work()
+			workers[index].Work(stats)
 		})
 	}
 	return workers, nil

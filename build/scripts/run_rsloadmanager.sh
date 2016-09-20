@@ -3,7 +3,6 @@ set -e -u -o pipefail
 
 cd -- "$(dirname -- "$0")"
 export HOST="$(curl 169.254.169.254/latest/meta-data/hostname)"
-export STATSD_HOSTPORT="localhost:8125"
 export CONFIG_PREFIX="s3://$S3_CONFIG_BUCKET/$VPC_SUBNET_TAG/$CLOUD_APP/$CLOUD_ENVIRONMENT"
 NO_WORK_DELAY="1m"  # Overidable in conf.sh
 export AWS_REGION=us-west-2
@@ -13,7 +12,7 @@ source conf.sh
 
 exec ./rsloadmanager \
   -n_workers 5 \
-  -statsPrefix="${CLOUD_APP}.${CLOUD_DEV_PHASE:-${CLOUD_ENVIRONMENT}}.${EC2_REGION}.${CLOUD_AUTO_SCALE_GROUP##*-}" \
+  -statsPrefix="${OWNER}.${CLOUD_APP}.${CLOUD_DEV_PHASE:-${CLOUD_ENVIRONMENT}}.${EC2_REGION}.${CLOUD_AUTO_SCALE_GROUP##*-}" \
   -databaseURL="${INGESTER_DB_URL}" \
   -manifestBucket="${MANIFEST_BUCKET}" \
   -loadCountTrigger="${LOAD_COUNT_TRIGGER}" \

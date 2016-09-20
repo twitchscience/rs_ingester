@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -125,9 +126,22 @@ func (i *rdsPipeHandler) Handle(msg *sqs.Message) error {
 	}
 
 	load := metadata.Load(*req)
+
+	eventName := fmt.Sprintf("tsv_files.%s.received", load.TableName)
+	err = i.Statter.Inc(eventName, 1, 1.0)
+	if err != nil {
+		logger.WithError(err).Printf("Error sending %s message to statsd", eventName)
+	}
+
 	err = i.MetadataStorer.InsertLoad(&load)
 	if err != nil {
 		return err
+	}
+
+	eventName = fmt.Sprintf("tsv_files.%s.queued", load.TableName)
+	err = i.Statter.Inc(eventName, 1, 1.0)
+	if err != nil {
+		logger.WithError(err).Printf("Error sending %s message to statsd", eventName)
 	}
 
 	return nil
