@@ -646,27 +646,3 @@ func (b *postgresBackend) PrioritizeTSVVersion(table string, version int) error 
 		version)
 	return err
 }
-
-func (b *postgresBackend) GetPendingTables() ([]Event, error) {
-	var events []Event
-
-	rows, err := b.db.Query(`SELECT tablename, count(*) AS cnt, min(ts) FROM ` + constants.TsvTable + ` WHERE manifest_uuid IS NULL GROUP BY tablename`)
-	if err != nil {
-		return events, fmt.Errorf("Error executing query: %v", err)
-	}
-	defer func() {
-		err = rows.Close()
-		if err != nil {
-			logger.WithError(err).Error("Error closing rows")
-		}
-	}()
-	for rows.Next() {
-		var e Event
-		err := rows.Scan(&e.Name, &e.Count, &e.Timestamp)
-		if err != nil {
-			return events, fmt.Errorf("Error reading row: %v", err)
-		}
-		events = append(events, e)
-	}
-	return events, nil
-}

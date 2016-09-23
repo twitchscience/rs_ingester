@@ -20,14 +20,14 @@ import (
 
 //RSLoader contains the redshift backend, stats module, and s3 bucket for the loader
 type RSLoader struct {
-	rsBackend  *backend.RedshiftBackend
+	rsBackend  backend.Backend
 	bucket     string
 	stats      statsd.Statter
 	s3Uploader s3manageriface.UploaderAPI
 }
 
 //NewRSLoader returns a RSLoader instance
-func NewRSLoader(s3Uploader s3manageriface.UploaderAPI, rsBackend *backend.RedshiftBackend, manifestBucket string, stats statsd.Statter) (Loader, error) {
+func NewRSLoader(s3Uploader s3manageriface.UploaderAPI, rsBackend backend.Backend, manifestBucket string, stats statsd.Statter) (Loader, error) {
 	return &RSLoader{
 		rsBackend:  rsBackend,
 		bucket:     manifestBucket,

@@ -6,7 +6,6 @@ import (
 
 	"github.com/cactus/go-statsd-client/statsd"
 	"github.com/twitchscience/aws_utils/logger"
-	"github.com/twitchscience/rs_ingester/metadata"
 	"github.com/zenazn/goji/web"
 )
 
@@ -69,32 +68,4 @@ func (ch *Handler) ForceIngest(c web.C, w http.ResponseWriter, r *http.Request) 
 		logger.WithError(err).Printf("Error sending force_ingest message to statsd")
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// GetPendingTables responds with the list of tables, or events, that are up to
-// be loaded
-func (ch *Handler) GetPendingTables(c web.C, w http.ResponseWriter, r *http.Request) {
-	pendingTables, err := ch.cb.GetPendingTables()
-	if err != nil {
-		respondWithJSONError(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	js, err := json.Marshal(struct{ Events []metadata.Event }{pendingTables})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	err = ch.stats.Inc("get_pending_tables", 1, 1.0)
-	if err != nil {
-		logger.WithError(err).Error("Error sending get_pending_tables message to statsd")
-	}
-	logger.WithField("pendingTables", pendingTables).Infof("Retrieved pending tables")
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_, err = w.Write(js)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
 }

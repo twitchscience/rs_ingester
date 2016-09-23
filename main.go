@@ -77,7 +77,7 @@ func (i *loadWorker) Work() {
 	workerGroup.Done()
 }
 
-func startWorkers(s3Uploader s3manageriface.UploaderAPI, b metadata.Backend, stats statsd.Statter, aceBackend *backend.RedshiftBackend) ([]loadWorker, error) {
+func startWorkers(s3Uploader s3manageriface.UploaderAPI, b metadata.Backend, stats statsd.Statter, aceBackend backend.Backend) ([]loadWorker, error) {
 	workers := make([]loadWorker, poolSize)
 	for i := 0; i < poolSize; i++ {
 		loadclient, err := loadclient.NewRSLoader(s3Uploader, aceBackend, manifestBucket, stats)
@@ -176,7 +176,6 @@ func main() {
 	controlHandler := control.NewControlHandler(controlBackend, stats)
 
 	serveMux.Handle("/control/ingest", control.NewControlRouter(controlHandler))
-	serveMux.Handle("/loads/tables", control.NewControlRouter(controlHandler))
 
 	logger.Go(func() {
 		logger.WithError(http.ListenAndServe(net.JoinHostPort("localhost", "8080"), serveMux)).

@@ -20,20 +20,6 @@ const (
 )
 
 var (
-	importOptions = strings.Join([]string{
-		"removequotes",
-		"delimiter '\\t'",
-		"gzip",
-		"escape",
-		"truncatecolumns",
-		"roundec",
-		"fillrecord",
-		"compupdate on",
-		"emptyasnull",
-		"acceptinvchars '?'",
-		"trimblanks;"},
-		" ",
-	)
 	manifestImportOptions = strings.Join([]string{
 		"removequotes",
 		"delimiter '\\t'",
@@ -52,38 +38,12 @@ var (
 	lastCredentialExpiry = time.Now()
 )
 
-//RowCopyRequest is the redshift packages representation of the row copy object for running a row copy
-type RowCopyRequest struct {
-	BuiltOn     time.Time
-	Name        string
-	Key         string
-	Credentials string
-}
-
 //ManifestRowCopyRequest is the redshift package's represntation of the manifest row copy object for a manifest row copy
 type ManifestRowCopyRequest struct {
 	BuiltOn     time.Time
 	Name        string
 	ManifestURL string
 	Credentials string
-}
-
-//TxExec runs the execution of the row copy request in a transaction
-func (r RowCopyRequest) TxExec(t *sql.Tx) error {
-	if strings.IndexRune(r.Key, '\000') != -1 || strings.IndexRune(r.Name, '\000') != -1 {
-		return fmt.Errorf("Key or name contain a null byte!")
-	}
-
-	query := fmt.Sprintf(copyCommand, pq.QuoteIdentifier(r.Name),
-		EscapePGString("s3://"+r.Key), r.Credentials, importOptions)
-
-	_, err := t.Exec(query)
-	if err != nil {
-		logger.WithError(err).Error("Error on executing copy")
-		return err
-	}
-
-	return nil
 }
 
 //TxExec runs the execution of the manifest row copy request in a transaction

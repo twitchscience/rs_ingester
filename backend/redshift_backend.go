@@ -3,7 +3,6 @@ package backend
 import (
 	"bytes"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -67,20 +66,10 @@ func BuildRedshiftBackend(credentials *credentials.Credentials, poolSize int, rs
 	}, nil
 }
 
-//HealthCheck makes sure that that redshift is reachable
+//HealthCheck makes sure that redshift is reachable
 func (r *RedshiftBackend) HealthCheck() error {
 	err := r.connection.Conn.Ping()
 	return err
-}
-
-//Copy makes a RowCopyRequest and executes the request
-func (r *RedshiftBackend) Copy(rc *scoop_protocol.RowCopyRequest) error {
-	return r.connection.ExecFnInTransaction(redshift.RowCopyRequest{
-		BuiltOn:     time.Now(),
-		Name:        rc.TableName,
-		Key:         rc.KeyName,
-		Credentials: redshift.CopyCredentials(r.credentials),
-	}.TxExec)
 }
 
 //ManifestCopy makes a ManifestRowCopyRequest and returns the function that executes the request
@@ -110,52 +99,6 @@ func (r *RedshiftBackend) LoadCheck(req *scoop_protocol.LoadCheckRequest) (*scoo
 	return resp, err
 }
 
-//Query allows for the execution of an arbitrary QueryRequest
-func (r *RedshiftBackend) Query(req *redshift.QueryRequest) ([]byte, error) {
-	return req.Exec(r.connection)
-}
-
-//AllSchemas returns a list of all table schemas in the logs schema in redshift
-func (r *RedshiftBackend) AllSchemas() ([]scoop_protocol.Config, error) {
-	req := &redshift.TableListRequest{
-		BuiltOn: time.Now(),
-		Schema:  "logs",
-	}
-	tables, err := req.Query(r.connection)
-	if err != nil {
-		return nil, err
-	}
-	schemas := make([]scoop_protocol.Config, len(tables))
-	for i, t := range tables {
-		s, err := r.Schema(t)
-		if err != nil {
-			return nil, err
-		}
-		schemas[i] = *s
-	}
-	return schemas, nil
-}
-
-//Schema returns a specific table schema in the logs schema in redshift
-func (r *RedshiftBackend) Schema(event string) (*scoop_protocol.Config, error) {
-	req := &redshift.ReadTableCommentRequest{
-		BuiltOn: time.Now(),
-		Name:    event,
-		Schema:  "logs",
-	}
-	comment, err := req.Query(r.connection)
-	if err != nil {
-		logger.WithError(err).Error("Error reading comment on table")
-		return nil, err
-	}
-	var cfg scoop_protocol.Config
-	err = json.Unmarshal([]byte(comment), &cfg)
-	if err != nil {
-		return nil, err
-	}
-	return &cfg, nil
-}
-
 func getTableVersions(conn *redshift.RSConnection) (map[string]int, error) {
 	versions := make(map[string]int)
 	rows, err := conn.Conn.Query(`SELECT name, MAX(version) FROM infra.table_version GROUP BY name;`)
@@ -182,42 +125,6 @@ func getTableVersions(conn *redshift.RSConnection) (map[string]int, error) {
 // TableVersions returns the event tables with version numbers
 func (r *RedshiftBackend) TableVersions() (map[string]int, error) {
 	return getTableVersions(r.connection)
-}
-
-//NewUser returns a function that executes a new uesr operation on redshift
-func (r *RedshiftBackend) NewUser(user, pw string) error {
-	return r.connection.ExecFnInTransaction((&redshift.NewUser{
-		User:     user,
-		Password: pw,
-	}).TxExec)
-}
-
-//UpdatePassword returns a function that executes an UpdatePassword operation on redshift
-func (r *RedshiftBackend) UpdatePassword(user, pw string) error {
-	return r.connection.ExecFnInTransaction((&redshift.UpdatePassword{
-		User:     user,
-		Password: pw,
-	}).TxExec)
-}
-
-//MakeSuperuser returns a function that executes a make super user operation on redshift
-func (r *RedshiftBackend) MakeSuperuser(user string) error {
-	return r.connection.ExecFnInTransaction((&redshift.MakeSuperuser{
-		User: user,
-	}).TxExec)
-}
-
-//UpdateGroup returns a function that executes an operation that updates a group to add a new user, on redshift
-func (r *RedshiftBackend) UpdateGroup(user, group string) error {
-	return r.connection.ExecFnInTransaction((&redshift.UpdateGroup{
-		User:  user,
-		Group: group,
-	}).TxExec)
-}
-
-//EnforcePermissions returns a function that repairs permissions on all tables on redshift
-func (r *RedshiftBackend) EnforcePermissions() error {
-	return r.connection.ExecFnInTransaction((&redshift.EnforcePerms{}).TxExec)
 }
 
 type migrationStep scoop_protocol.Operation

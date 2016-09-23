@@ -27,8 +27,3 @@ func (cBackend *Backend) ForceIngest(tableName string) error {
 	}
 	return nil
 }
-
-// GetPendingTables returns the list of tables with loads currently pending
-func (cBackend *Backend) GetPendingTables() ([]metadata.Event, error) {
-	return cBackend.metaReader.GetPendingTables()
-}
