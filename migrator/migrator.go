@@ -109,13 +109,20 @@ func (m *Migrator) migrate(table string, to int) error {
 		// to migrate, first we wait until processor finishes the old version...
 		timeMigrationStarted, started := m.migrationStarted[tableVersion{table, to}]
 		if !started {
-			m.migrationStarted[tableVersion{table, to}] = time.Now()
-			logger.WithField("table", table).WithField("version", to).Info("Starting to wait for processor before migrating")
+			now := time.Now()
+			m.migrationStarted[tableVersion{table, to}] = now
+			logger.WithField("table", table).
+				WithField("version", to).
+				WithField("until", now.Add(m.waitProcessorPeriod)).
+				Info("Starting to wait for processor before migrating")
 			return nil
 		}
 		// don't do anything if we haven't waited long enough for processor
 		if time.Since(timeMigrationStarted) < m.waitProcessorPeriod {
-			logger.WithField("table", table).WithField("version", to).Info("Waiting for processor before migrating")
+			logger.WithField("table", table).
+				WithField("version", to).
+				WithField("until", timeMigrationStarted.Add(m.waitProcessorPeriod)).
+				Info("Waiting for processor before migrating")
 			return nil
 		}
 
