@@ -67,7 +67,8 @@ func (i *loadWorker) Work() {
 			if err.Retryable() {
 				i.MetadataBackend.LoadError(load.UUID, err.Error())
 			}
-			logger.WithError(err).WithField("retryable", err.Retryable()).Error("Error loading files into table.")
+			logger.WithError(err).WithField("retryable", err.Retryable()).
+				WithField("loadUUID", load.UUID).Error("Error loading files into table.")
 			continue
 		}
 		logger.WithField("loadUUID", load.UUID).
