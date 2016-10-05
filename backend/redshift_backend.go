@@ -41,7 +41,7 @@ func buildTableLocks(conn *redshift.RSConnection) (map[string]*sync.Mutex, error
 	}
 	for table := range currentTableVersions {
 		locks[table] = &sync.Mutex{}
-		logger.Info("Created %s Lock", table)
+		logger.Infof("Created %s Lock", table)
 	}
 	return locks, nil
 }

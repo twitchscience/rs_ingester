@@ -276,10 +276,10 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadManifest, error) {
 
 		if err = isolateTransaction(tx); err != nil {
 			logger.WithError(err).Error("Error setting transaction serializable")
-			return nil, err
+			return nil, rollbackAndError(tx, err)
 		}
 
-		loadUUID, lastError, err := staleLoadMetadata(tx)
+		loadUUID, lastError, err := staleLoadMetadata(tx) // staleLoadMetadata commits or rollsback on error
 		if err != nil {
 			return nil, err
 		}
@@ -289,12 +289,6 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadManifest, error) {
 		}
 
 		logger.WithField("loadUUID", loadUUID).Info("Checking up on load")
-
-		err = tx.Commit()
-		if err != nil {
-			logger.WithError(err).Error("Error on commit when locking manifest load")
-			return nil, err
-		}
 
 		loadStatus, err := b.loadChecker.CheckLoad(loadUUID)
 		if err != nil {
@@ -310,14 +304,14 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadManifest, error) {
 
 		if err = isolateTransaction(tx); err != nil {
 			logger.WithError(err).Error("Error setting transaction serializable")
-			return nil, err
+			return nil, rollbackAndError(tx, err)
 		}
 
 		switch loadStatus {
 		case scoop_protocol.LoadComplete:
 			// If completed succesfully, delete tsv rows
 			logger.WithField("loadUUID", loadUUID).Info("Load is complete, marking done")
-			err = b.loadDoneHelper(tx, loadUUID)
+			err = b.loadDoneHelper(tx, loadUUID) // loadDoneHelper rolls back on error
 			if err != nil {
 				return nil, err
 			}
