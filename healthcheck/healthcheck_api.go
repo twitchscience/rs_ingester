@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/context"
+	"github.com/twitchscience/rs_ingester/lib"
 	"github.com/zenazn/goji/web"
 	"github.com/zenazn/goji/web/middleware"
 )
@@ -21,7 +22,7 @@ func NewHealthRouter(hcHandler *Handler) http.Handler {
 	health.Use(middleware.EnvInit)
 	health.Use(middleware.RequestID)
 	health.Use(middleware.RealIP)
-	health.Use(middleware.Logger)
+	health.Use(lib.SimpleLogger)
 	health.Use(context.ClearHandler)
 
 	health.Get("/health", hcHandler.HealthCheck)

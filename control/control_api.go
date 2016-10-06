@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/context"
+	"github.com/twitchscience/rs_ingester/lib"
 	"github.com/zenazn/goji/web"
 	"github.com/zenazn/goji/web/middleware"
 )
@@ -15,7 +16,7 @@ func NewControlRouter(cHandler *Handler) http.Handler {
 	control.Use(middleware.EnvInit)
 	control.Use(middleware.RequestID)
 	control.Use(middleware.RealIP)
-	control.Use(middleware.Logger)
+	control.Use(lib.SimpleLogger)
 	control.Use(context.ClearHandler)
 
 	control.Post("/control/ingest", cHandler.ForceIngest)
