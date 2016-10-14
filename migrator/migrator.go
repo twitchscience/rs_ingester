@@ -181,7 +181,11 @@ func (m *Migrator) loop() {
 			if err != nil {
 				logger.WithError(err).Error("Error finding migrations to apply")
 			}
-			logger.WithField("numTables", len(outdatedTables)).Infof("Migrator found tables to migrate.")
+			if len(outdatedTables) == 0 {
+				logger.Infof("Migrator didn't find any tables to migrate.")
+			} else {
+				logger.WithField("numTables", len(outdatedTables)).Infof("Migrator found tables to migrate.")
+			}
 			for _, table := range outdatedTables {
 				var newVersion int
 				currentVersion, exists := m.versions.Get(table)

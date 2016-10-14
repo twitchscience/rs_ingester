@@ -279,11 +279,15 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadManifest, error) {
 			return nil, rollbackAndError(tx, err)
 		}
 
-		loadUUID, lastError, err := staleLoadMetadata(tx) // staleLoadMetadata commits or rollsback on error
+		loadUUID, lastError, err := staleLoadMetadata(tx)
 		if err != nil {
+			return nil, rollbackAndError(tx, err)
+		}
+		err = tx.Commit()
+		if err != nil {
+			logger.WithError(err).Error("Error on commit when locking manifest load")
 			return nil, err
 		}
-
 		if loadUUID == "" {
 			return nil, nil
 		}
@@ -378,7 +382,6 @@ func staleLoadMetadata(tx *sql.Tx) (loadUUID string, lastError sql.NullString, e
 
 	if err != nil {
 		logger.WithError(err).Error("Error querying for stale locks")
-		err = rollbackAndError(tx, err)
 		return
 	}
 	defer func() {
@@ -392,12 +395,8 @@ func staleLoadMetadata(tx *sql.Tx) (loadUUID string, lastError sql.NullString, e
 		err = rows.Scan(&loadUUID, &lastError)
 		if err != nil {
 			logger.WithError(err).Error("Got error fetching tsv row")
-			err = rollbackAndError(tx, err)
 			return
 		}
-	} else {
-		// No work left to do
-		err = tx.Commit()
 	}
 	return
 }
