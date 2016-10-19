@@ -1,6 +1,7 @@
 #!/bin/bash --
 set -e -u -o pipefail
 
+source /etc/environment
 cd -- "$(dirname -- "$0")"
 export HOST="$(curl 169.254.169.254/latest/meta-data/hostname)"
 export CONFIG_PREFIX="s3://$S3_CONFIG_BUCKET/$VPC_SUBNET_TAG/$CLOUD_APP/$CLOUD_ENVIRONMENT"

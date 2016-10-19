@@ -224,6 +224,7 @@ func main() {
 			logger.WithError(err).Error("Error closing statter")
 		}
 		workerGroup.Wait()
+		logger.Info("Exiting main cleanly.")
 		logger.Wait()
 		close(wait)
 	})

@@ -217,6 +217,9 @@ func (b *postgresBackend) loadErrorHelper(tx *sql.Tx, manifestUUID, loadError st
 }
 
 func (b *postgresBackend) loadReadyWorker() {
+	logger.Info("Starting loadReadyWorker.")
+	defer logger.Info("loadReadyWorker stopped.")
+
 	var lastStaleCheck time.Time
 	for {
 		var stale *LoadManifest
@@ -246,7 +249,7 @@ func (b *postgresBackend) loadReadyWorker() {
 			return err
 		})
 		if err != nil {
-			logger.WithError(err).Errorf("Error fetching manifest for load after %d tries. last error attached", dbRetryCount)
+			logger.WithError(err).Errorf("Error fetching manifest for load after %d tries. Last error attached", dbRetryCount)
 		}
 
 		sleepDelay := noWorkDelay

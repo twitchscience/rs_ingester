@@ -57,10 +57,10 @@ func New(aceBack backend.Backend,
 	}
 
 	m.wg.Add(1)
-	go func() {
+	logger.Go(func() {
 		defer m.wg.Done()
 		m.loop()
-	}()
+	})
 	return &m
 }
 

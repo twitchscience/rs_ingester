@@ -85,8 +85,9 @@ func main() {
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc, syscall.SIGINT)
 	logger.Go(func() {
-		// Cause flush
 		<-sigc
+		logger.Info("Sigint received -- shutting down")
+		// Cause flush
 		var wg sync.WaitGroup
 		wg.Add(listenerCount)
 		for i := 0; i < listenerCount; i++ {
@@ -97,6 +98,7 @@ func main() {
 			})
 		}
 		wg.Wait()
+		logger.Info("Exiting main cleanly.")
 		logger.Wait()
 		close(wait)
 	})
