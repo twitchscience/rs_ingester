@@ -83,7 +83,7 @@ func CheckLoadStatus(t *sql.Tx, manifestURL string) (scoop_protocol.LoadStatus, 
 	err = t.QueryRow("SELECT xid, aborted FROM STL_QUERY WHERE querytxt ILIKE $1", q).Scan(&xid, &aborted)
 	switch {
 	case err == sql.ErrNoRows:
-		logger.WithField("manifestURL", manifestURL).Error("CheckLoadStatus: Manifest copy does not have a transaction ID")
+		logger.WithField("manifestURL", manifestURL).Warning("CheckLoadStatus: Manifest copy does not have a transaction ID")
 		return scoop_protocol.LoadNotFound, nil
 	case err != nil:
 		return "", err
