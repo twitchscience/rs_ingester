@@ -88,3 +88,15 @@ func (ch *Handler) TableExists(c web.C, w http.ResponseWriter, r *http.Request) 
 		return
 	}
 }
+
+// IncrementVersion sets the table's version in infra.table_version to the given version.
+func (ch *Handler) IncrementVersion(c web.C, w http.ResponseWriter, r *http.Request) {
+	table := c.URLParams["id"]
+
+	err := ch.cb.IncrementVersion(table)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

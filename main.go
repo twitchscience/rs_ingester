@@ -184,7 +184,9 @@ func main() {
 	}
 
 	blueprintClient := blueprint.New(blueprintHost)
-	migrator := migrator.New(aceBackend, metaReader, blueprintClient, tableVersions, migratorPollPeriod, waitProcessorPeriod, offpeakStartHour, offpeakDurationHours)
+	versionIncrement := make(chan migrator.VersionIncrement)
+	migrator := migrator.New(aceBackend, metaReader, blueprintClient, tableVersions, migratorPollPeriod,
+		waitProcessorPeriod, offpeakStartHour, offpeakDurationHours, versionIncrement)
 
 	hcBackend := healthcheck.NewBackend(rsConnection, metaReader)
 	hcHandler := healthcheck.NewHandler(hcBackend)
@@ -192,7 +194,7 @@ func main() {
 	serveMux := http.NewServeMux()
 	serveMux.Handle("/health", healthcheck.NewHealthRouter(hcHandler))
 
-	controlBackend := control.NewControlBackend(metaReader, tableVersions, aceBackend)
+	controlBackend := control.NewControlBackend(metaReader, tableVersions, versionIncrement)
 	controlHandler := control.NewControlHandler(controlBackend, stats)
 
 	serveMux.Handle("/control/", control.NewControlRouter(controlHandler))

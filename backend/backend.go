@@ -9,5 +9,6 @@ type Backend interface {
 	ManifestCopy(*scoop_protocol.ManifestRowCopyRequest) error
 	TableVersions() (map[string]int, error)
 	ApplyOperations(string, []scoop_protocol.Operation, int) error
-	CreateTable(string, []scoop_protocol.Operation) error
+	CreateTable(string, []scoop_protocol.Operation, int) error
+	TableExists(string) (bool, error)
 }

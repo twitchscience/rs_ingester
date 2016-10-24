@@ -80,13 +80,23 @@ response body:
 * It then runs the `CREATE TABLE` or `ALTER` query and updates `infra.table_version`
 in a transaction, and updates its local cache. It then moves on to the next migration.
 
+The migrator also handles calls to the `/control/increment_version/:id` endpoint (see below).
+It handles the necessary updates to `infra.table_version` and the in-memory version cache so that
+only one goroutine is ever modifying them.
+
 ## Control
 
-The control module provides an API to control aspects parts of the ingester.
-Currently this provides an endpoint to force loads on a single table. This is
-currently used in the blueprint UI. It works by setting the `ts` column of rows
-in `tsv` of the desired table to 1970, making it the first table that will be
-picked up by a loader.
+The control module provides an API to control aspects parts of the ingester, called from blueprint.
+Current endpoints:
+* `/control/ingest`: This is executes a force load from the blueprint UI.
+It works by setting the `ts` column of rows in `tsv` of the desired table to 1970,
+making it the next table that will be picked up by a loader.
+* `/control/table_exists/:id`: This returns whether a table exists in the `infra.table_versions` table.
+This can return false positives for tables that have been dropped, but it's a trade-off to keep this
+endpoint fast.
+* `/control/increment_version/:id`: This increments a table's version without waiting for a TSV to
+come in and the migration to be executed. This is used to skip the creation of tables that have
+been dropped before any TSVs come in.
 
 
 ## License

@@ -31,19 +31,7 @@ type RedshiftBackend struct {
 	connection  *redshift.RSConnection
 	credentials *credentials.Credentials
 	tableLocks  map[string]*sync.Mutex
-}
-
-func buildTableLocks(conn *redshift.RSConnection) (map[string]*sync.Mutex, error) {
-	locks := make(map[string]*sync.Mutex)
-	currentTableVersions, err := getTableVersions(conn)
-	if err != nil {
-		return nil, err
-	}
-	for table := range currentTableVersions {
-		locks[table] = &sync.Mutex{}
-		logger.Infof("Created %s Lock", table)
-	}
-	return locks, nil
+	lockLock    *sync.Mutex
 }
 
 //BuildRedshiftBackend builds a new redshift backend by also creating a new rsConnection
@@ -55,14 +43,11 @@ func BuildRedshiftBackend(credentials *credentials.Credentials, poolSize int, rs
 	for i := 0; i < 5; i++ {
 		go conn.Listen()
 	}
-	tableLocks, err := buildTableLocks(conn)
-	if err != nil {
-		return nil, err
-	}
 	return &RedshiftBackend{
 		connection:  conn,
 		credentials: credentials,
-		tableLocks:  tableLocks,
+		tableLocks:  make(map[string]*sync.Mutex),
+		lockLock:    &sync.Mutex{},
 	}, nil
 }
 
@@ -74,10 +59,7 @@ func (r *RedshiftBackend) HealthCheck() error {
 
 //ManifestCopy makes a ManifestRowCopyRequest and returns the function that executes the request
 func (r *RedshiftBackend) ManifestCopy(rc *scoop_protocol.ManifestRowCopyRequest) error {
-	lock, exist := r.tableLocks[rc.TableName]
-	if !exist {
-		return fmt.Errorf("Lock for %s did not exist", rc.TableName)
-	}
+	lock := r.getTableLock(rc.TableName)
 	lock.Lock()
 	defer lock.Unlock()
 
@@ -99,9 +81,10 @@ func (r *RedshiftBackend) LoadCheck(req *scoop_protocol.LoadCheckRequest) (*scoo
 	return resp, err
 }
 
-func getTableVersions(conn *redshift.RSConnection) (map[string]int, error) {
+// TableVersions returns the event tables with version numbers
+func (r *RedshiftBackend) TableVersions() (map[string]int, error) {
 	versions := make(map[string]int)
-	rows, err := conn.Conn.Query(`SELECT name, MAX(version) FROM infra.table_version GROUP BY name;`)
+	rows, err := r.connection.Conn.Query(`SELECT name, MAX(version) FROM infra.table_version GROUP BY name;`)
 	if err != nil {
 		return nil, fmt.Errorf("Error SELECTing the table versions from ace's infra.table_version: %v", err)
 	}
@@ -120,11 +103,6 @@ func getTableVersions(conn *redshift.RSConnection) (map[string]int, error) {
 		versions[table] = version
 	}
 	return versions, nil
-}
-
-// TableVersions returns the event tables with version numbers
-func (r *RedshiftBackend) TableVersions() (map[string]int, error) {
-	return getTableVersions(r.connection)
 }
 
 type migrationStep scoop_protocol.Operation
@@ -181,10 +159,7 @@ func expectVersion(tx *sql.Tx, table string, version int) error {
 
 //ApplyOperations applies operations to a table and updates the table's version
 func (r *RedshiftBackend) ApplyOperations(table string, ops []scoop_protocol.Operation, targetVersion int) error {
-	lock, exist := r.tableLocks[table]
-	if !exist {
-		return fmt.Errorf("Lock for %s did not exist", table)
-	}
+	lock := r.getTableLock(table)
 	lock.Lock()
 	defer lock.Unlock()
 
@@ -213,7 +188,7 @@ func (r *RedshiftBackend) ApplyOperations(table string, ops []scoop_protocol.Ope
 			case scoop_protocol.DROP_EVENT:
 			case scoop_protocol.CANCEL_DROP_EVENT:
 			default:
-				err = fmt.Errorf("Unknown operation action: %s", op.Action)
+				err = fmt.Errorf("Unexpected operation action: %s", op.Action)
 			}
 			if err != nil {
 				return err
@@ -234,6 +209,10 @@ type newTable []scoop_protocol.Operation
 //are add column operations
 func buildNewTable(ops []scoop_protocol.Operation) (newTable, error) {
 	for _, op := range ops {
+		// If we have a DROP_EVENT, treat it as a no-op.
+		if op.Action == scoop_protocol.DROP_EVENT {
+			return nil, nil
+		}
 		if op.Action != scoop_protocol.ADD {
 			return nil, fmt.Errorf("newTable must be made out of action=%s operations, received action=%s", scoop_protocol.ADD, op.Action)
 		}
@@ -260,28 +239,57 @@ func (n *newTable) getColumnCreationString() string {
 	return out.String()
 }
 
-//CreateTable creates a new table at logs.`table` with the columns in ops
-func (r *RedshiftBackend) CreateTable(table string, ops []scoop_protocol.Operation) error {
+//CreateTable creates a table at logs.`table` with the columns in ops unless the ops have DROP_EVENT.
+func (r *RedshiftBackend) CreateTable(table string, ops []scoop_protocol.Operation, version int) error {
 	newTable, err := buildNewTable(ops)
-	if err != nil {
+	// If we had a problem or the operations are to drop the table, just return.
+	if err != nil || newTable == nil {
 		return err
 	}
 	return r.connection.ExecFnInTransaction(func(tx *sql.Tx) error {
-		err := expectVersion(tx, table, -1)
-		if err != nil {
-			return err
-		}
 		query := fmt.Sprintf(`CREATE TABLE %s%s;`, pq.QuoteIdentifier(table), newTable.getColumnCreationString())
 		_, err = tx.Exec(query)
 		if err != nil {
 			return fmt.Errorf("Error CREATEing TABLE %s: %v", table, err)
 		}
-		r.tableLocks[table] = &sync.Mutex{}
-		query = "INSERT INTO infra.table_version (name, version, ts) VALUES ($1, 0, GETDATE())"
-		_, err = tx.Exec(query, table)
+		query = "INSERT INTO infra.table_version (name, version, ts) VALUES ($1, $2, GETDATE())"
+		_, err = tx.Exec(query, table, version)
 		if err != nil {
 			return fmt.Errorf("Error updating table_version in ace: %v", err)
 		}
 		return nil
 	})
+}
+
+// TableExists returns whether the given table exists in the logs schema.
+func (r *RedshiftBackend) TableExists(table string) (bool, error) {
+	query := `SELECT EXISTS (
+		SELECT 1
+		FROM pg_catalog.pg_class
+		JOIN pg_catalog.pg_namespace
+			ON pg_namespace.oid = pg_class.relnamespace
+		WHERE pg_namespace.nspname = 'logs'
+			AND pg_class.relname = $1
+			AND pg_class.relkind = 'r'    -- ordinary table
+	)`
+	var exists bool
+	err := r.connection.Conn.QueryRow(query, table).Scan(&exists)
+	switch {
+	case err != nil:
+		return false, fmt.Errorf("error querying whether table exists: %v", err)
+	default:
+		return exists, nil
+	}
+}
+
+// getTableLock returns a lock for the given table, creating it if necessary.
+func (r *RedshiftBackend) getTableLock(table string) *sync.Mutex {
+	r.lockLock.Lock()
+	defer r.lockLock.Unlock()
+	lock, exist := r.tableLocks[table]
+	if !exist {
+		lock = &sync.Mutex{}
+		r.tableLocks[table] = lock
+	}
+	return lock
 }

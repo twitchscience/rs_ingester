@@ -21,6 +21,7 @@ func NewControlRouter(cHandler *Handler) http.Handler {
 
 	control.Post("/control/ingest", cHandler.ForceIngest)
 	control.Get("/control/table_exists/:id", cHandler.TableExists)
+	control.Post("/control/increment_version/:id", cHandler.IncrementVersion)
 
 	return control
 }

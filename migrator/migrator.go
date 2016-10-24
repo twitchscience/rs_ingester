@@ -17,6 +17,13 @@ type tableVersion struct {
 	version int
 }
 
+// VersionIncrement is used to send a request to increment a table's version w/o running a migration.
+type VersionIncrement struct {
+	Table    string
+	Version  int
+	Response chan error
+}
+
 // Migrator manages the migration of Ace as new versioned tsvs come in.
 type Migrator struct {
 	versions             versions.GetterSetter
@@ -25,6 +32,7 @@ type Migrator struct {
 	bpClient             blueprint.Client
 	closer               chan bool
 	oldVersionWaitClose  chan bool
+	versionIncrement     chan VersionIncrement
 	wg                   sync.WaitGroup
 	pollPeriod           time.Duration
 	waitProcessorPeriod  time.Duration
@@ -41,7 +49,8 @@ func New(aceBack backend.Backend,
 	pollPeriod time.Duration,
 	waitProcessorPeriod time.Duration,
 	offpeakStartHour int,
-	offpeakDurationHours int) *Migrator {
+	offpeakDurationHours int,
+	versionIncrement chan VersionIncrement) *Migrator {
 	m := Migrator{
 		versions:             versions,
 		aceBackend:           aceBack,
@@ -49,6 +58,7 @@ func New(aceBack backend.Backend,
 		bpClient:             blueprintClient,
 		closer:               make(chan bool),
 		oldVersionWaitClose:  make(chan bool),
+		versionIncrement:     versionIncrement,
 		pollPeriod:           pollPeriod,
 		waitProcessorPeriod:  waitProcessorPeriod,
 		migrationStarted:     make(map[tableVersion]time.Time),
@@ -100,8 +110,12 @@ func (m *Migrator) migrate(table string, to int) error {
 	if err != nil {
 		return err
 	}
-	if to == 0 {
-		err = m.aceBackend.CreateTable(table, ops)
+	exists, err := m.aceBackend.TableExists(table)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		err = m.aceBackend.CreateTable(table, ops, to)
 		if err != nil {
 			return err
 		}
@@ -176,6 +190,24 @@ func (m *Migrator) loop() {
 	tick := time.NewTicker(m.pollPeriod)
 	for {
 		select {
+		case verInc := <-m.versionIncrement:
+			exists, err := m.aceBackend.TableExists(verInc.Table)
+			switch {
+			case err != nil:
+				verInc.Response <- fmt.Errorf(
+					"error determining if table %s exists: %v", verInc.Table, err)
+			case exists:
+				verInc.Response <- fmt.Errorf(
+					"attempted to increment version of table that exists: %s", verInc.Table)
+			default:
+				err = m.aceBackend.ApplyOperations(verInc.Table, nil, verInc.Version)
+				if err == nil {
+					logger.Infof("Incremented table %s to version %d",
+						verInc.Table, verInc.Version)
+					m.versions.Set(verInc.Table, verInc.Version)
+				}
+				verInc.Response <- err
+			}
 		case <-tick.C:
 			outdatedTables, err := m.findTablesToMigrate()
 			if err != nil {
