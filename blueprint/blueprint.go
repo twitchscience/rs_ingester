@@ -35,9 +35,10 @@ func (c *Client) GetMigration(table string, toVersion int) ([]scoop_protocol.Ope
 	}
 	resp, err := http.Get(u.String())
 	defer func() {
-		err = resp.Body.Close()
-		if err != nil {
-			logger.WithError(err).Error("Error closing response body from blueprint")
+		if resp != nil {
+			if err = resp.Body.Close(); err != nil {
+				logger.WithError(err).Error("Error closing response body from blueprint")
+			}
 		}
 	}()
 	if err != nil {
