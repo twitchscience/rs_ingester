@@ -69,3 +69,22 @@ func (ch *Handler) ForceIngest(c web.C, w http.ResponseWriter, r *http.Request) 
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// TableExists returns a boolean indicating whether the given table exists.
+func (ch *Handler) TableExists(c web.C, w http.ResponseWriter, r *http.Request) {
+	table := c.URLParams["id"]
+
+	exists := ch.cb.TableExists(table)
+	js, err := json.Marshal(struct{ Exists bool }{exists})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, err = w.Write(js)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}

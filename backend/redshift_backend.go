@@ -209,6 +209,9 @@ func (r *RedshiftBackend) ApplyOperations(table string, ops []scoop_protocol.Ope
 					pq.QuoteIdentifier(op.ActionMetadata["new_outbound"]),
 				)
 				_, err = tx.Exec(query)
+			case scoop_protocol.REQUEST_DROP_EVENT:
+			case scoop_protocol.DROP_EVENT:
+			case scoop_protocol.CANCEL_DROP_EVENT:
 			default:
 				err = fmt.Errorf("Unknown operation action: %s", op.Action)
 			}

@@ -192,10 +192,10 @@ func main() {
 	serveMux := http.NewServeMux()
 	serveMux.Handle("/health", healthcheck.NewHealthRouter(hcHandler))
 
-	controlBackend := control.NewControlBackend(metaReader, tableVersions)
+	controlBackend := control.NewControlBackend(metaReader, tableVersions, aceBackend)
 	controlHandler := control.NewControlHandler(controlBackend, stats)
 
-	serveMux.Handle("/control/ingest", control.NewControlRouter(controlHandler))
+	serveMux.Handle("/control/", control.NewControlRouter(controlHandler))
 
 	logger.Go(func() {
 		logger.WithError(http.ListenAndServe(net.JoinHostPort("localhost", "8080"), serveMux)).

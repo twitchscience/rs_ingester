@@ -20,6 +20,7 @@ func NewControlRouter(cHandler *Handler) http.Handler {
 	control.Use(context.ClearHandler)
 
 	control.Post("/control/ingest", cHandler.ForceIngest)
+	control.Get("/control/table_exists/:id", cHandler.TableExists)
 
 	return control
 }
