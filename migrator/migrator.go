@@ -184,6 +184,56 @@ func (m *Migrator) isOffPeakHours() bool {
 	return false
 }
 
+func (m *Migrator) incrementVersion(verInc VersionIncrement) {
+	exists, err := m.aceBackend.TableExists(verInc.Table)
+	switch {
+	case err != nil:
+		verInc.Response <- fmt.Errorf(
+			"error determining if table %s exists: %v", verInc.Table, err)
+	case exists:
+		verInc.Response <- fmt.Errorf(
+			"attempted to increment version of table that exists: %s", verInc.Table)
+	default:
+		err = m.aceBackend.ApplyOperations(verInc.Table, nil, verInc.Version)
+		if err == nil {
+			logger.Infof("Incremented table %s to version %d",
+				verInc.Table, verInc.Version)
+			m.versions.Set(verInc.Table, verInc.Version)
+		}
+		verInc.Response <- err
+	}
+}
+
+func (m *Migrator) findAndApplyMigrations() {
+	outdatedTables, err := m.findTablesToMigrate()
+	if err != nil {
+		logger.WithError(err).Error("Error finding migrations to apply")
+	}
+	if len(outdatedTables) == 0 {
+		logger.Infof("Migrator didn't find any tables to migrate.")
+	} else {
+		logger.WithField("numTables", len(outdatedTables)).Infof("Migrator found tables to migrate.")
+	}
+	for _, table := range outdatedTables {
+		var newVersion int
+		currentVersion, exists := m.versions.Get(table)
+		if !exists { // table doesn't exist yet, create it by 'migrating' to version 0
+			newVersion = 0
+		} else {
+			newVersion = currentVersion + 1
+		}
+		// if not offpeak, don't migrate table, but still allow table creation
+		if newVersion > 0 && !m.isOffPeakHours() {
+			logger.WithField("table", table).WithField("version", newVersion).Infof("Not migrating; waiting until offpeak at %dh UTC", m.offpeakStartHour)
+			continue
+		}
+		err := m.migrate(table, newVersion)
+		if err != nil {
+			logger.WithError(err).WithField("table", table).WithField("version", newVersion).Error("Error migrating table")
+		}
+	}
+}
+
 func (m *Migrator) loop() {
 	logger.Info("Migrator started.")
 	defer logger.Info("Migrator stopped.")
@@ -191,51 +241,9 @@ func (m *Migrator) loop() {
 	for {
 		select {
 		case verInc := <-m.versionIncrement:
-			exists, err := m.aceBackend.TableExists(verInc.Table)
-			switch {
-			case err != nil:
-				verInc.Response <- fmt.Errorf(
-					"error determining if table %s exists: %v", verInc.Table, err)
-			case exists:
-				verInc.Response <- fmt.Errorf(
-					"attempted to increment version of table that exists: %s", verInc.Table)
-			default:
-				err = m.aceBackend.ApplyOperations(verInc.Table, nil, verInc.Version)
-				if err == nil {
-					logger.Infof("Incremented table %s to version %d",
-						verInc.Table, verInc.Version)
-					m.versions.Set(verInc.Table, verInc.Version)
-				}
-				verInc.Response <- err
-			}
+			m.incrementVersion(verInc)
 		case <-tick.C:
-			outdatedTables, err := m.findTablesToMigrate()
-			if err != nil {
-				logger.WithError(err).Error("Error finding migrations to apply")
-			}
-			if len(outdatedTables) == 0 {
-				logger.Infof("Migrator didn't find any tables to migrate.")
-			} else {
-				logger.WithField("numTables", len(outdatedTables)).Infof("Migrator found tables to migrate.")
-			}
-			for _, table := range outdatedTables {
-				var newVersion int
-				currentVersion, exists := m.versions.Get(table)
-				if !exists { // table doesn't exist yet, create it by 'migrating' to version 0
-					newVersion = 0
-				} else {
-					newVersion = currentVersion + 1
-				}
-				// if not offpeak, don't migrate table, but still allow table creation
-				if newVersion > 0 && !m.isOffPeakHours() {
-					logger.WithField("table", table).WithField("version", newVersion).Infof("Not migrating; waiting until offpeak at %dh UTC", m.offpeakStartHour)
-					continue
-				}
-				err := m.migrate(table, newVersion)
-				if err != nil {
-					logger.WithError(err).WithField("table", table).WithField("version", newVersion).Error("Error migrating table")
-				}
-			}
+			m.findAndApplyMigrations()
 		case <-m.closer:
 			return
 		}

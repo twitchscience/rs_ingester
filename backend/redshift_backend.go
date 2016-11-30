@@ -157,6 +157,34 @@ func expectVersion(tx *sql.Tx, table string, version int) error {
 	}
 }
 
+//applyOperation applies a single operation to a table given a transaction (no
+//rollback or commit)
+func applyOperation(op scoop_protocol.Operation, table string, tx *sql.Tx) error {
+	var err error
+	switch op.Action {
+	case scoop_protocol.ADD:
+		mStep := migrationStep(op)
+		query := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s", pq.QuoteIdentifier(table), mStep.getCreationForm())
+		_, err = tx.Exec(query)
+	case scoop_protocol.DELETE:
+		query := fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s CASCADE", pq.QuoteIdentifier(table), pq.QuoteIdentifier(op.Name))
+		_, err = tx.Exec(query)
+	case scoop_protocol.RENAME:
+		query := fmt.Sprintf("ALTER TABLE %s RENAME COLUMN %s TO %s",
+			pq.QuoteIdentifier(table),
+			pq.QuoteIdentifier(op.Name),
+			pq.QuoteIdentifier(op.ActionMetadata["new_outbound"]),
+		)
+		_, err = tx.Exec(query)
+	case scoop_protocol.REQUEST_DROP_EVENT:
+	case scoop_protocol.DROP_EVENT:
+	case scoop_protocol.CANCEL_DROP_EVENT:
+	default:
+		err = fmt.Errorf("Unexpected operation action: %s", op.Action)
+	}
+	return err
+}
+
 //ApplyOperations applies operations to a table and updates the table's version
 func (r *RedshiftBackend) ApplyOperations(table string, ops []scoop_protocol.Operation, targetVersion int) error {
 	lock := r.getTableLock(table)
@@ -169,27 +197,7 @@ func (r *RedshiftBackend) ApplyOperations(table string, ops []scoop_protocol.Ope
 			return err
 		}
 		for _, op := range ops {
-			switch op.Action {
-			case scoop_protocol.ADD:
-				mStep := migrationStep(op)
-				query := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s", pq.QuoteIdentifier(table), mStep.getCreationForm())
-				_, err = tx.Exec(query)
-			case scoop_protocol.DELETE:
-				query := fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s CASCADE", pq.QuoteIdentifier(table), pq.QuoteIdentifier(op.Name))
-				_, err = tx.Exec(query)
-			case scoop_protocol.RENAME:
-				query := fmt.Sprintf("ALTER TABLE %s RENAME COLUMN %s TO %s",
-					pq.QuoteIdentifier(table),
-					pq.QuoteIdentifier(op.Name),
-					pq.QuoteIdentifier(op.ActionMetadata["new_outbound"]),
-				)
-				_, err = tx.Exec(query)
-			case scoop_protocol.REQUEST_DROP_EVENT:
-			case scoop_protocol.DROP_EVENT:
-			case scoop_protocol.CANCEL_DROP_EVENT:
-			default:
-				err = fmt.Errorf("Unexpected operation action: %s", op.Action)
-			}
+			err = applyOperation(op, table, tx)
 			if err != nil {
 				return err
 			}

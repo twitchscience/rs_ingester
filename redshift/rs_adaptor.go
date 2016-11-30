@@ -181,11 +181,7 @@ func (rs *RSConnection) ExecInTransaction(cmds ...RSRequest) error {
 			return err
 		}
 	}
-	err = tx.Commit()
-	if err != nil {
-		return err
-	}
-	return nil
+	return tx.Commit()
 }
 
 //ExecFnInTransaction takes a closure function of a request and runs it on redshift in a transaction

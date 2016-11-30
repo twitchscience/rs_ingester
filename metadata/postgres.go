@@ -324,6 +324,10 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadManifest, error) {
 			}
 
 			err = tx.Commit()
+			if err != nil {
+				logger.WithError(err).Error("Error on commit when cleaning up manifests+tsvs at finished load")
+				return nil, err
+			}
 
 		case scoop_protocol.LoadNotFound, scoop_protocol.LoadFailed:
 			if lastError.Valid {

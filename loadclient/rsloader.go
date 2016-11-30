@@ -52,7 +52,7 @@ func (rsl *RSLoader) LoadManifest(manifest *metadata.LoadManifest) LoadError {
 		return &loadError{msg: err.Error(), isRetryable: true}
 	}
 
-	_ = rsl.stats.Timing(manifest.TableName, int64(time.Now().Sub(start)), 1)
+	_ = rsl.stats.Timing(manifest.TableName, int64(time.Since(start)), 1)
 	return nil
 }
 

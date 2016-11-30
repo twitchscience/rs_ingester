@@ -48,7 +48,7 @@ type ManifestRowCopyRequest struct {
 
 //TxExec runs the execution of the manifest row copy request in a transaction
 func (r ManifestRowCopyRequest) TxExec(t *sql.Tx) error {
-	if strings.IndexRune(r.ManifestURL, '\000') != -1 || strings.IndexRune(r.Name, '\000') != -1 {
+	if strings.ContainsRune(r.ManifestURL, '\000') || strings.ContainsRune(r.Name, '\000') {
 		return fmt.Errorf("ManifestURL or name contain a null byte!")
 	}
 
@@ -122,7 +122,7 @@ func CheckLoadStatus(t *sql.Tx, manifestURL string) (scoop_protocol.LoadStatus, 
 //CopyCredentials refreshes the redshift aws auth token aggressively
 func CopyCredentials(credentials *credentials.Credentials) (accessCreds string) {
 	// Agressively refresh the token
-	if time.Now().Sub(lastCredentialExpiry) > credentialExpiryTimeout {
+	if time.Since(lastCredentialExpiry) > credentialExpiryTimeout {
 		credentials.Expire()
 	}
 
