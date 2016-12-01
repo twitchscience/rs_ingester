@@ -57,7 +57,6 @@ func (r ManifestRowCopyRequest) TxExec(t *sql.Tx) error {
 
 	_, err := t.Exec(query)
 	if err != nil {
-		logger.WithError(err).Error("Error on executing copy")
 		return err
 	}
 
