@@ -56,11 +56,7 @@ func (r ManifestRowCopyRequest) TxExec(t *sql.Tx) error {
 		EscapePGString(r.ManifestURL), r.Credentials, manifestImportOptions)
 
 	_, err := t.Exec(query)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 //CheckLoadStatus checks the status of a load into redshift
