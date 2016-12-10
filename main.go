@@ -86,12 +86,10 @@ func (i *loadWorker) Work(stats statsd.Statter) {
 		if statsdErr != nil {
 			logger.WithError(statsdErr).Printf("Error sending manifest_load.count message to statsd")
 		}
-		for _, tsv := range load.Loads {
-			statsdEvent := fmt.Sprintf("tsv_files.%s.loaded", tsv.TableName)
-			statsdErr = stats.Inc(statsdEvent, 1, 1.0)
-			if statsdErr != nil {
-				logger.WithError(statsdErr).Printf("Error sending %s message to statsd", statsdEvent)
-			}
+		statsdEvent := fmt.Sprintf("tsv_files.%s.loaded", load.TableName)
+		statsdErr = stats.Inc(statsdEvent, int64(len(load.Loads)), 1.0)
+		if statsdErr != nil {
+			logger.WithError(statsdErr).Printf("Error sending %s message to statsd", statsdEvent)
 		}
 	}
 	workerGroup.Done()
@@ -220,12 +218,12 @@ func main() {
 		if metaBackend != nil {
 			metaBackend.Close()
 		}
+		workerGroup.Wait()
 		// Cause flush
 		err = stats.Close()
 		if err != nil {
 			logger.WithError(err).Error("Error closing statter")
 		}
-		workerGroup.Wait()
 		logger.Info("Exiting main cleanly.")
 		logger.Wait()
 		close(wait)

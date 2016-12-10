@@ -87,8 +87,7 @@
       "type": "shell",
       "inline":
       [
-        "sudo apt-get update",
-        "sudo apt-get -y install nginx",
+        "sudo run_apt_get_install.sh nginx",
 
         "sudo rm /etc/nginx/sites-*/default",
         "sudo ln -s /opt/science/{{user `project`}}/nginx.conf /etc/nginx/sites-enabled/{{user `project`}}",
