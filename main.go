@@ -207,7 +207,7 @@ func main() {
 	})
 
 	logger.Go(func() {
-		logger.WithError(http.ListenAndServe(":6060", nil)).
+		logger.WithError(http.ListenAndServe(":7766", http.DefaultServeMux)).
 			Error("Serving pprof failed")
 	})
 

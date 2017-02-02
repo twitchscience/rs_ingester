@@ -63,7 +63,8 @@ func main() {
 	}
 
 	logger.Go(func() {
-		logger.WithError(http.ListenAndServe(":6061", nil)).Error("Serving pprof failed")
+		logger.WithError(http.ListenAndServe(":7767", http.DefaultServeMux)).
+			Error("Serving pprof failed")
 	})
 
 	postgresBackend, err := metadata.NewPostgresStorer(&pgConfig)
