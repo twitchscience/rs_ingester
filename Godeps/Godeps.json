@@ -7,11 +7,6 @@
 	],
 	"Deps": [
 		{
-			"ImportPath": "github.com/DATA-DOG/go-sqlmock",
-			"Comment": "0.1.0-3-g5b6166b",
-			"Rev": "5b6166bfbf40598012f5369281bdbc793f54f95e"
-		},
-		{
 			"ImportPath": "github.com/aws/aws-sdk-go/aws",
 			"Comment": "v1.1.6-3-g0bd49bf",
 			"Rev": "0bd49bf38f0396818638e27de5c73eee6e66012d"
@@ -148,8 +143,13 @@
 		},
 		{
 			"ImportPath": "github.com/cactus/go-statsd-client/statsd",
-			"Comment": "v3.0.2-1-gda59e2d",
-			"Rev": "da59e2d6fa324a07d6569865637b11efa483d0ee"
+			"Comment": "v3.1.0-4-gd8eabe0",
+			"Rev": "d8eabe07bc70ff9ba6a56836cde99d1ea3d005f7"
+		},
+		{
+			"ImportPath": "github.com/cactus/go-statsd-client/statsd/statsdtest",
+			"Comment": "v3.1.0-4-gd8eabe0",
+			"Rev": "d8eabe07bc70ff9ba6a56836cde99d1ea3d005f7"
 		},
 		{
 			"ImportPath": "github.com/go-ini/ini",
@@ -223,6 +223,10 @@
 			"ImportPath": "github.com/zenazn/goji/web/mutil",
 			"Comment": "v0.9.0-34-gbf843a1",
 			"Rev": "bf843a174a08e846246b8945f8a9a853d84a256a"
+		},
+		{
+			"ImportPath": "golang.org/x/sys/unix",
+			"Rev": "a646d33e2ee3172a661fc09bca23bb4889a41bc8"
 		}
 	]
 }

@@ -27,6 +27,7 @@ import (
 	"github.com/twitchscience/rs_ingester/lib"
 	"github.com/twitchscience/rs_ingester/loadclient"
 	"github.com/twitchscience/rs_ingester/metadata"
+	"github.com/twitchscience/rs_ingester/reporter"
 )
 
 const (
@@ -46,6 +47,7 @@ var (
 	workerGroup          sync.WaitGroup
 	waitProcessorPeriod  time.Duration
 	migratorPollPeriod   time.Duration
+	reporterPollPeriod   time.Duration
 	offpeakStartHour     int
 	offpeakDurationHours int
 )
@@ -114,6 +116,7 @@ func startWorkers(s3Uploader s3manageriface.UploaderAPI, b metadata.Backend, sta
 
 func init() {
 	flag.DurationVar(&migratorPollPeriod, "migratorPollPeriod", time.Minute, "the period betwen each poll the migrator does of ingesterdb for new versions to migrate to")
+	flag.DurationVar(&reporterPollPeriod, "reporterPollPeriod", time.Minute, "the period betwen each poll the reporter does of ingesterdb to query current stats")
 	flag.DurationVar(&waitProcessorPeriod, "waitProcessorPeriod", time.Minute*3, "the period we wait for processor to process all old version TSVs")
 	flag.StringVar(&statsPrefix, "statsPrefix", "ingester", "the prefix to statsd")
 	flag.StringVar(&pgConfig.DatabaseURL, "databaseURL", "", "Postgres-scheme url for the RDS instance")
@@ -181,6 +184,7 @@ func main() {
 		logger.WithError(err).Fatal("Failed to setup postgres reader")
 	}
 
+	statsReporter := reporter.New(metaReader, stats, reporterPollPeriod)
 	blueprintClient := blueprint.New(blueprintHost)
 	versionIncrement := make(chan migrator.VersionIncrement)
 	migrator := migrator.New(aceBackend, metaReader, blueprintClient, tableVersions, migratorPollPeriod,
@@ -215,6 +219,7 @@ func main() {
 		<-sigc
 		logger.Info("Sigint received -- shutting down")
 		migrator.Close()
+		statsReporter.Close()
 		if metaBackend != nil {
 			metaBackend.Close()
 		}

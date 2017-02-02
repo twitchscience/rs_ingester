@@ -16,12 +16,13 @@ type LoadManifest struct {
 	UUID      string
 }
 
-// Reader specifies the interface for reading current table versions in tsvs
+// Reader specifies the interface for Backend read/write operations
 type Reader interface {
 	Versions() (map[string]int, error)
 	PingDB() error
 	TSVVersionExists(table string, version int) (bool, error)
 	PrioritizeTSVVersion(table string, version int) error
+	EventsPendingLoad() ([]Event, error)
 }
 
 // Backend specifies the interface for load state
@@ -41,7 +42,7 @@ type Storer interface {
 
 // Event represents an event, or table, that needs to be loaded
 type Event struct {
-	Name      string
-	Count     int
-	Timestamp time.Time
+	Name  string
+	Count int64
+	MinTS time.Time
 }

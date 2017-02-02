@@ -273,10 +273,8 @@ func (s *Client) SetPrefix(prefix string) {
 func (s *Client) NewSubStatter(prefix string) SubStatter {
 	var c *Client
 	if s != nil {
-		subfix := dotprefix(prefix)
-
 		c = &Client{
-			prefix:  s.prefix + subfix,
+			prefix:  joinPathComp(s.prefix, prefix),
 			sender:  s.sender,
 			sampler: s.sampler,
 		}
@@ -296,21 +294,33 @@ func NewClient(addr, prefix string) (Statter, error) {
 		return nil, err
 	}
 
-	client := &Client{
-		prefix: prefix,
-		sender: sender,
-	}
-
-	return client, nil
+	return &Client{prefix: prefix, sender: sender}, nil
 }
 
-// helper method to ensure a dot is added only when necessary
-func dotprefix(prefix string) string {
-	if prefix != "" && !strings.HasPrefix(prefix, ".") {
-		return "." + prefix
+// NewClientWithSender returns a pointer to a new Client and an error.
+//
+// sender is an instance of a statsd.Sender interface and may not be nil
+//
+// prefix is the stastd client prefix. Can be "" if no prefix is desired.
+func NewClientWithSender(sender Sender, prefix string) (Statter, error) {
+	if sender == nil {
+		return nil, fmt.Errorf("Client sender may not be nil")
 	}
 
-	return prefix
+	return &Client{prefix: prefix, sender: sender}, nil
+}
+
+// joinPathComp is a helper that ensures we combine path components with a dot
+// when it's appropriate to do so; prefix is the existing prefix and suffix is
+// the new component being added.
+//
+// It returns the joined prefix.
+func joinPathComp(prefix, suffix string) string {
+	suffix = strings.TrimLeft(suffix, ".")
+	if prefix != "" && suffix != "" {
+		return prefix + "." + suffix
+	}
+	return prefix + suffix
 }
 
 // Dial is a compatibility alias for NewClient

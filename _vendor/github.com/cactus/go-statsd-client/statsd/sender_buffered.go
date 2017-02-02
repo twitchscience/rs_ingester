@@ -16,17 +16,17 @@ var senderPool = newBufferPool()
 // BufferedSender provides a buffered statsd udp, sending multiple
 // metrics, where possible.
 type BufferedSender struct {
+	sender        Sender
 	flushBytes    int
 	flushInterval time.Duration
-	sender        Sender
-	// lifecycle
-	shutdown chan chan error
-	running  bool
-	runmx    sync.RWMutex
 	// buffers
 	bufmx  sync.Mutex
 	buffer *bytes.Buffer
 	bufs   chan *bytes.Buffer
+	// lifecycle
+	runmx    sync.RWMutex
+	shutdown chan chan error
+	running  bool
 }
 
 // Send bytes.
@@ -132,7 +132,13 @@ func (s *BufferedSender) run() {
 
 // send to remove endpoint and truncate buffer
 func (s *BufferedSender) flush(b *bytes.Buffer) (int, error) {
-	n, err := s.sender.Send(bytes.TrimSuffix(b.Bytes(), []byte("\n")))
+	bb := b.Bytes()
+	bbl := len(bb)
+	if bb[bbl-1] == '\n' {
+		bb = bb[:bbl-1]
+	}
+	//n, err := s.sender.Send(bytes.TrimSuffix(b.Bytes(), []byte("\n")))
+	n, err := s.sender.Send(bb)
 	b.Truncate(0) // clear the buffer
 	return n, err
 }
@@ -159,7 +165,7 @@ func NewBufferedSender(addr string, flushInterval time.Duration, flushBytes int)
 		flushBytes:    flushBytes,
 		flushInterval: flushInterval,
 		sender:        simpleSender,
-		buffer:        bytes.NewBuffer(make([]byte, 0, flushBytes)),
+		buffer:        senderPool.Get(),
 		shutdown:      make(chan chan error),
 	}
 

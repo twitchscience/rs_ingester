@@ -27,3 +27,4 @@ exec ./rsloadmanager \
   -rollbarEnvironment="${CLOUD_ENVIRONMENT}" \
   -offpeakStartHour="${OFFPEAK_START_HOUR}" \
   -offpeakDurationHours="${OFFPEAK_DURATION_HOURS}" \
+  -reporterPollPeriod="${REPORTER_POLL_PERIOD}" \

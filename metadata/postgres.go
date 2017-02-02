@@ -646,3 +646,35 @@ func (b *postgresBackend) PrioritizeTSVVersion(table string, version int) error 
 		version)
 	return err
 }
+
+func (b *postgresBackend) EventsPendingLoad() ([]Event, error) {
+	rows, err := b.db.Query(fmt.Sprintf(`
+		SELECT tablename, count(*) AS cnt, min(ts) AS min_ts
+		FROM %s
+		GROUP BY tablename`, constants.TsvTable))
+	if err != nil {
+		return nil, fmt.Errorf("error finding all tables pending load: %v", err)
+	}
+	defer func() {
+		err = rows.Close()
+		if err != nil {
+			logger.WithError(err).Error("error closing rows")
+		}
+	}()
+
+	var table string
+	var count int64
+	var minTS time.Time
+	var eventsPending []Event
+	for rows.Next() {
+		if err = rows.Scan(&table, &count, &minTS); err != nil {
+			return nil, fmt.Errorf("error parsing rows when looking for tables to load: %v", err)
+		}
+		eventsPending = append(eventsPending, Event{
+			Name:  table,
+			Count: count,
+			MinTS: minTS,
+		})
+	}
+	return eventsPending, nil
+}
