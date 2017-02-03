@@ -65,15 +65,15 @@ func (r *Reporter) sendStats() error {
 		} else {
 			ageInMS = int64(time.Since(event.MinTS) / time.Millisecond)
 		}
-		_ = r.stats.SetInt(fmt.Sprintf("tsv_files.%s.count", event.Name), event.Count, 1.0)
-		_ = r.stats.SetInt(fmt.Sprintf("tsv_files.%s.age_in_ms", event.Name), ageInMS, 1.0)
+		_ = r.stats.Gauge(fmt.Sprintf("tsv_files.%s.count", event.Name), event.Count, 1.0)
+		_ = r.stats.Gauge(fmt.Sprintf("tsv_files.%s.age_in_ms", event.Name), ageInMS, 1.0)
 		totalCount += event.Count
 		if ageInMS > maxAgeInMS {
 			maxAgeInMS = ageInMS
 		}
 	}
-	_ = r.stats.SetInt("tsv_files.total_count", totalCount, 1.0)
-	_ = r.stats.SetInt("tsv_files.max_age_in_ms", maxAgeInMS, 1.0)
+	_ = r.stats.Gauge("tsv_files.total_count", totalCount, 1.0)
+	_ = r.stats.Gauge("tsv_files.max_age_in_ms", maxAgeInMS, 1.0)
 	return nil
 }
 

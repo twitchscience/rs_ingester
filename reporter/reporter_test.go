@@ -74,12 +74,12 @@ func TestSendStats(t *testing.T) {
 		t.Fatalf("failed to capture right amount of events; got: %d, expected: 6", len(statsSent))
 	}
 	expectedStats := statsdtest.Stats{
-		{[]byte("t.tsv_files.event_1.count:1|s"), "t.tsv_files.event_1.count", "1", "s", "", true},
-		{[]byte("t.tsv_files.event_1.age_in_ms:0|s"), "t.tsv_files.event_1.age_in_ms", "0", "s", "", true},
-		{[]byte("t.tsv_files.event_2.count:2|s"), "t.tsv_files.event_2.count", "2", "s", "", true},
-		{[]byte("t.tsv_files.event_2.age_in_ms:0|s"), "t.tsv_files.event_2.age_in_ms", "0", "s", "", true},
-		{[]byte("t.tsv_files.total_count:3|s"), "t.tsv_files.total_count", "3", "s", "", true},
-		{[]byte("t.tsv_files.max_age_in_ms:0|s"), "t.tsv_files.max_age_in_ms", "0", "s", "", true},
+		{[]byte("t.tsv_files.event_1.count:1|g"), "t.tsv_files.event_1.count", "1", "g", "", true},
+		{[]byte("t.tsv_files.event_1.age_in_ms:0|g"), "t.tsv_files.event_1.age_in_ms", "0", "g", "", true},
+		{[]byte("t.tsv_files.event_2.count:2|g"), "t.tsv_files.event_2.count", "2", "g", "", true},
+		{[]byte("t.tsv_files.event_2.age_in_ms:0|g"), "t.tsv_files.event_2.age_in_ms", "0", "g", "", true},
+		{[]byte("t.tsv_files.total_count:3|g"), "t.tsv_files.total_count", "3", "g", "", true},
+		{[]byte("t.tsv_files.max_age_in_ms:0|g"), "t.tsv_files.max_age_in_ms", "0", "g", "", true},
 	}
 	if !reflect.DeepEqual(statsSent, expectedStats) {
 		t.Fatalf("Failed to send right stats:\ngot: %s,\nwant: %s", statsSent, expectedStats)
