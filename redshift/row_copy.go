@@ -48,8 +48,11 @@ type ManifestRowCopyRequest struct {
 
 //TxExec runs the execution of the manifest row copy request in a transaction
 func (r ManifestRowCopyRequest) TxExec(t *sql.Tx) error {
-	if strings.ContainsRune(r.ManifestURL, '\000') || strings.ContainsRune(r.Name, '\000') {
-		return fmt.Errorf("ManifestURL or name contain a null byte!")
+	if strings.ContainsRune(r.ManifestURL, '\000') {
+		return fmt.Errorf("ManifestURL contains a null byte")
+	}
+	if strings.ContainsRune(r.Name, '\000') {
+		return fmt.Errorf("Name contains a null byte")
 	}
 
 	query := fmt.Sprintf(copyCommand, pq.QuoteIdentifier(r.Name),

@@ -147,12 +147,12 @@ func expectVersion(tx *sql.Tx, table string, version int) error {
 		if version == -1 {
 			return nil
 		}
-		return fmt.Errorf("Expected version %d for table %s, but table doesn't exist in infra.table_version.", version, table)
+		return fmt.Errorf("expected version %d for table %s, but table doesn't exist in infra.table_version", version, table)
 	case err != nil:
-		return fmt.Errorf("Error finding table version from ace: %v", err)
+		return fmt.Errorf("error finding table version from ace: %v", err)
 	default:
 		if readVersion != version {
-			return fmt.Errorf("Expected version %d for table %s, but got version %d in infra.table_version", version, table, readVersion)
+			return fmt.Errorf("expected version %d for table %s, but got version %d in infra.table_version", version, table, readVersion)
 		}
 		return nil
 	}
