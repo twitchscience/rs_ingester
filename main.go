@@ -61,27 +61,25 @@ func (i *loadWorker) Work(stats statsd.Statter) {
 
 	c := i.MetadataBackend.LoadReady()
 	for load := range c {
-		logger.WithField("loadUUID", load.UUID).
+		logfields := logger.WithField("loadUUID", load.UUID).
 			WithField("numFiles", len(load.Loads)).
-			WithField("table", load.TableName).
-			Info("Loading manifest into table")
+			WithField("table", load.TableName)
+		logfields.Info("Loading manifest into table")
 		err := i.Loader.LoadManifest(load)
 		if err != nil {
 			if err.Retryable() {
 				i.MetadataBackend.LoadError(load.UUID, err.Error())
 			}
-			logger.WithError(err).WithField("retryable", err.Retryable()).
-				WithField("loadUUID", load.UUID).Error("Error loading files into table.")
+			logfields.WithError(err).WithField("retryable", err.Retryable()).
+				Error("Error loading files into table.")
 
 			statsdErr := stats.Inc("manifest_load.failures", 1, 1.0)
 			if statsdErr != nil {
 				logger.WithError(statsdErr).Printf("Error sending manifest_load.failures message to statsd")
 			}
-
 			continue
 		}
-		logger.WithField("loadUUID", load.UUID).
-			WithField("table", load.TableName).Info("Loaded manifest into table")
+		logfields.Info("Loaded manifest into table")
 		i.MetadataBackend.LoadDone(load.UUID)
 
 		statsdErr := stats.Inc("manifest_load.count", 1, 1.0)
