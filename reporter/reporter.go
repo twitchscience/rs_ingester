@@ -48,13 +48,14 @@ func (r *Reporter) reporterThread() {
 	}
 }
 
-func (r *Reporter) sendStats() error {
-	events, err := r.backend.EventsPendingLoad()
+func (r *Reporter) sendInQueueEventStats() error {
+	events, err := r.backend.EventsInQueue()
 	if err != nil {
 		return err
 	}
-	logger.Infof("Found %d events pending load", len(events))
-	var totalCount int64
+
+	logger.Infof("Found %d events in queue for loading", len(events))
+	var totalInQueueCount int64
 	var maxAgeInMS int64
 	for _, event := range events {
 		var ageInMS int64
@@ -65,16 +66,40 @@ func (r *Reporter) sendStats() error {
 		} else {
 			ageInMS = int64(time.Since(event.MinTS) / time.Millisecond)
 		}
-		_ = r.stats.Gauge(fmt.Sprintf("tsv_files.%s.count", event.Name), event.Count, 1.0)
+		_ = r.stats.Gauge(fmt.Sprintf("tsv_files.%s.in_queue_count", event.Name), event.Count, 1.0)
 		_ = r.stats.Gauge(fmt.Sprintf("tsv_files.%s.age_in_ms", event.Name), ageInMS, 1.0)
-		totalCount += event.Count
+		totalInQueueCount += event.Count
 		if ageInMS > maxAgeInMS {
 			maxAgeInMS = ageInMS
 		}
 	}
-	_ = r.stats.Gauge("tsv_files.total_count", totalCount, 1.0)
+	_ = r.stats.Gauge("tsv_files.total_in_queue_count", totalInQueueCount, 1.0)
 	_ = r.stats.Gauge("tsv_files.max_age_in_ms", maxAgeInMS, 1.0)
 	return nil
+}
+
+func (r *Reporter) sendStaleEventStats() error {
+	events, err := r.backend.StaleEvents()
+	if err != nil {
+		return err
+	}
+
+	logger.Infof("Found %d stale events", len(events))
+	var totalStaleCount int64
+	for _, event := range events {
+		_ = r.stats.Gauge(fmt.Sprintf("tsv_files.%s.stale_count", event.Name), event.Count, 1.0)
+		totalStaleCount += event.Count
+	}
+	_ = r.stats.Gauge("tsv_files.total_stale_count", totalStaleCount, 1.0)
+	return nil
+}
+
+func (r *Reporter) sendStats() error {
+	err := r.sendInQueueEventStats()
+	if err != nil {
+		return err
+	}
+	return r.sendStaleEventStats()
 }
 
 // Close is a blocking function that waits to cleanly shut down reporting.
