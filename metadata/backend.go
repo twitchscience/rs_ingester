@@ -22,7 +22,8 @@ type Reader interface {
 	PingDB() error
 	TSVVersionExists(table string, version int) (bool, error)
 	PrioritizeTSVVersion(table string, version int) error
-	EventsPendingLoad() ([]Event, error)
+	EventsInQueue() ([]Event, error)
+	StaleEvents() ([]Event, error)
 }
 
 // Backend specifies the interface for load state

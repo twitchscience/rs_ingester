@@ -647,13 +647,10 @@ func (b *postgresBackend) PrioritizeTSVVersion(table string, version int) error 
 	return err
 }
 
-func (b *postgresBackend) EventsPendingLoad() ([]Event, error) {
-	rows, err := b.db.Query(fmt.Sprintf(`
-		SELECT tablename, count(*) AS cnt, min(ts) AS min_ts
-		FROM %s
-		GROUP BY tablename`, constants.TsvTable))
+func (b *postgresBackend) eventScannerHelper(query string, args ...interface{}) ([]Event, error) {
+	rows, err := b.db.Query(query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("error finding all tables pending load: %v", err)
+		return nil, fmt.Errorf("failed to execute query: %v", err)
 	}
 	defer func() {
 		err = rows.Close()
@@ -665,16 +662,38 @@ func (b *postgresBackend) EventsPendingLoad() ([]Event, error) {
 	var table string
 	var count int64
 	var minTS time.Time
-	var eventsPending []Event
+	var events []Event
 	for rows.Next() {
 		if err = rows.Scan(&table, &count, &minTS); err != nil {
-			return nil, fmt.Errorf("error parsing rows when looking for tables to load: %v", err)
+			return nil, fmt.Errorf("error scanning event rows: %v", err)
 		}
-		eventsPending = append(eventsPending, Event{
+		events = append(events, Event{
 			Name:  table,
 			Count: count,
 			MinTS: minTS,
 		})
 	}
-	return eventsPending, nil
+	return events, nil
+}
+
+// EventsInQueue returns events with manifest either scheduled or in the process of being loaded.
+func (b *postgresBackend) EventsInQueue() ([]Event, error) {
+	return b.eventScannerHelper(`
+		SELECT tablename, count(*) AS cnt, min(ts) AS min_ts
+		FROM `+constants.TsvTable+`
+		LEFT JOIN `+constants.ManifestTable+`
+			ON manifest_uuid=uuid
+		WHERE retry_count IS NULL OR retry_count < $1
+		GROUP BY tablename`, maxLoadRetryCount)
+}
+
+// StaleEvents returns events with manifest loads that were retried a maximum amount of times.
+func (b *postgresBackend) StaleEvents() ([]Event, error) {
+	return b.eventScannerHelper(`
+		SELECT tablename, count(*) AS cnt, min(ts) AS min_ts
+		FROM `+constants.TsvTable+`
+		LEFT JOIN `+constants.ManifestTable+`
+			ON manifest_uuid=uuid
+		WHERE retry_count IS NOT NULL AND retry_count >= $1
+		GROUP BY tablename`, maxLoadRetryCount)
 }
