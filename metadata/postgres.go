@@ -676,6 +676,7 @@ func (b *postgresBackend) eventScannerHelper(query string, args ...interface{}) 
 	return events, nil
 }
 
+// EventsInQueue returns events with manifest either scheduled or in the process of being loaded.
 func (b *postgresBackend) EventsInQueue() ([]Event, error) {
 	return b.eventScannerHelper(`
 		SELECT tablename, count(*) AS cnt, min(ts) AS min_ts
@@ -686,6 +687,7 @@ func (b *postgresBackend) EventsInQueue() ([]Event, error) {
 		GROUP BY tablename`, maxLoadRetryCount)
 }
 
+// StaleEvents returns events with manifest loads that were retried a maximum amount of times.
 func (b *postgresBackend) StaleEvents() ([]Event, error) {
 	return b.eventScannerHelper(`
 		SELECT tablename, count(*) AS cnt, min(ts) AS min_ts

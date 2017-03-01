@@ -54,7 +54,7 @@ func (r *Reporter) sendInQueueEventStats() error {
 		return err
 	}
 
-	logger.Infof("Found %d events in queue for loading", len(events))
+	logger.WithField("count", len(events)).Infof("Found events in queue for loading")
 	var totalInQueueCount int64
 	var maxAgeInMS int64
 	for _, event := range events {
@@ -84,7 +84,7 @@ func (r *Reporter) sendStaleEventStats() error {
 		return err
 	}
 
-	logger.Infof("Found %d stale events", len(events))
+	logger.WithField("count", len(events)).Infof("Found stale events")
 	var totalStaleCount int64
 	for _, event := range events {
 		_ = r.stats.Gauge(fmt.Sprintf("tsv_files.%s.stale_count", event.Name), event.Count, 1.0)
