@@ -16,11 +16,10 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sqs"
 	"github.com/aws/aws-sdk-go/service/sqs/sqsiface"
-	"github.com/cactus/go-statsd-client/statsd"
 	"github.com/twitchscience/aws_utils/listener"
 	"github.com/twitchscience/aws_utils/logger"
-	"github.com/twitchscience/rs_ingester/lib"
 	"github.com/twitchscience/rs_ingester/metadata"
+	"github.com/twitchscience/rs_ingester/monitoring"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
 
@@ -37,7 +36,7 @@ var (
 type rdsPipeHandler struct {
 	MetadataStorer metadata.Storer
 	Signer         scoop_protocol.ScoopSigner
-	Statter        statsd.Statter
+	Statter        monitoring.SafeStatter
 }
 
 func init() {
@@ -57,7 +56,7 @@ func main() {
 	logger.InitWithRollbar("info", rollbarToken, rollbarEnvironment)
 	defer logger.LogPanic()
 
-	stats, err := lib.InitStats(statsPrefix)
+	stats, err := monitoring.InitStats(statsPrefix)
 	if err != nil {
 		logger.WithError(err).Fatal("Error initializing stats")
 	}
@@ -107,7 +106,7 @@ func main() {
 	<-wait
 }
 
-func startWorker(sqs sqsiface.SQSAPI, queue string, stats statsd.Statter, b metadata.Storer) *listener.SQSListener {
+func startWorker(sqs sqsiface.SQSAPI, queue string, stats monitoring.SafeStatter, b metadata.Storer) *listener.SQSListener {
 	ret := listener.BuildSQSListener(
 		&rdsPipeHandler{
 			MetadataStorer: b,
@@ -130,22 +129,18 @@ func (i *rdsPipeHandler) Handle(msg *sqs.Message) error {
 
 	load := metadata.Load(*req)
 
-	eventName := fmt.Sprintf("tsv_files.%s.received", load.TableName)
-	err = i.Statter.Inc(eventName, 1, 1.0)
-	if err != nil {
-		logger.WithError(err).Printf("Error sending %s message to statsd", eventName)
-	}
+	eventPattern := "tsv_files.%s.received"
+	i.Statter.SafeInc(fmt.Sprintf(eventPattern, load.TableName), 1, 1.0)
+	i.Statter.SafeInc(fmt.Sprintf(eventPattern, "total"), 1, 1.0)
 
 	err = i.MetadataStorer.InsertLoad(&load)
 	if err != nil {
 		return err
 	}
 
-	eventName = fmt.Sprintf("tsv_files.%s.queued", load.TableName)
-	err = i.Statter.Inc(eventName, 1, 1.0)
-	if err != nil {
-		logger.WithError(err).Printf("Error sending %s message to statsd", eventName)
-	}
+	eventPattern = "tsv_files.%s.queued"
+	i.Statter.SafeInc(fmt.Sprintf(eventPattern, load.TableName), 1, 1.0)
+	i.Statter.SafeInc(fmt.Sprintf(eventPattern, "total"), 1, 1.0)
 
 	return nil
 }

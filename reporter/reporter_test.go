@@ -9,6 +9,7 @@ import (
 	"github.com/cactus/go-statsd-client/statsd/statsdtest"
 
 	"github.com/twitchscience/rs_ingester/metadata"
+	"github.com/twitchscience/rs_ingester/monitoring"
 )
 
 // MockReader mocks what's minimally required to obtain a custom list of events pending loads
@@ -72,7 +73,7 @@ func TestSendStats(t *testing.T) {
 
 	r := &Reporter{
 		backend: mockBackend,
-		stats:   statter,
+		stats:   &monitoring.LoggingStatter{Statter: statter},
 	}
 	err = r.sendStats()
 	if err != nil {

@@ -4,19 +4,18 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/cactus/go-statsd-client/statsd"
-	"github.com/twitchscience/aws_utils/logger"
+	"github.com/twitchscience/rs_ingester/monitoring"
 	"github.com/zenazn/goji/web"
 )
 
 // Handler is a handler for control
 type Handler struct {
 	cb    *Backend
-	stats statsd.Statter
+	stats monitoring.SafeStatter
 }
 
 // NewControlHandler instantiates a handler for control
-func NewControlHandler(ch *Backend, stats statsd.Statter) *Handler {
+func NewControlHandler(ch *Backend, stats monitoring.SafeStatter) *Handler {
 	return &Handler{ch, stats}
 }
 
@@ -63,10 +62,7 @@ func (ch *Handler) ForceIngest(c web.C, w http.ResponseWriter, r *http.Request) 
 		respondWithJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	err = ch.stats.Inc("force_ingest."+table, 1, 1.0)
-	if err != nil {
-		logger.WithError(err).Printf("Error sending force_ingest message to statsd")
-	}
+	ch.stats.SafeInc("force_ingest."+table, 1, 1.0)
 	w.WriteHeader(http.StatusNoContent)
 }
 

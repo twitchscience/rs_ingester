@@ -4,22 +4,21 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cactus/go-statsd-client/statsd"
-
 	"github.com/twitchscience/aws_utils/logger"
 	"github.com/twitchscience/rs_ingester/metadata"
+	"github.com/twitchscience/rs_ingester/monitoring"
 )
 
 // Reporter that queries a backend in intervals and sends stats.
 type Reporter struct {
 	backend    metadata.Reader
-	stats      statsd.Statter
+	stats      monitoring.SafeStatter
 	pollPeriod time.Duration
 	closer     chan bool
 }
 
 // New returns a Reporter that polls from backend with a given interval.
-func New(backend metadata.Reader, stats statsd.Statter, pollPeriod time.Duration) *Reporter {
+func New(backend metadata.Reader, stats monitoring.SafeStatter, pollPeriod time.Duration) *Reporter {
 	r := &Reporter{
 		backend:    backend,
 		stats:      stats,
@@ -66,15 +65,15 @@ func (r *Reporter) sendInQueueEventStats() error {
 		} else {
 			ageInMS = int64(time.Since(event.MinTS) / time.Millisecond)
 		}
-		_ = r.stats.Gauge(fmt.Sprintf("tsv_files.%s.in_queue_count", event.Name), event.Count, 1.0)
-		_ = r.stats.Gauge(fmt.Sprintf("tsv_files.%s.age_in_ms", event.Name), ageInMS, 1.0)
+		r.stats.SafeGauge(fmt.Sprintf("tsv_files.%s.in_queue_count", event.Name), event.Count, 1.0)
+		r.stats.SafeGauge(fmt.Sprintf("tsv_files.%s.age_in_ms", event.Name), ageInMS, 1.0)
 		totalInQueueCount += event.Count
 		if ageInMS > maxAgeInMS {
 			maxAgeInMS = ageInMS
 		}
 	}
-	_ = r.stats.Gauge("tsv_files.total_in_queue_count", totalInQueueCount, 1.0)
-	_ = r.stats.Gauge("tsv_files.max_age_in_ms", maxAgeInMS, 1.0)
+	r.stats.SafeGauge("tsv_files.total_in_queue_count", totalInQueueCount, 1.0)
+	r.stats.SafeGauge("tsv_files.max_age_in_ms", maxAgeInMS, 1.0)
 	return nil
 }
 
@@ -87,10 +86,10 @@ func (r *Reporter) sendStaleEventStats() error {
 	logger.WithField("count", len(events)).Infof("Found stale events")
 	var totalStaleCount int64
 	for _, event := range events {
-		_ = r.stats.Gauge(fmt.Sprintf("tsv_files.%s.stale_count", event.Name), event.Count, 1.0)
+		r.stats.SafeGauge(fmt.Sprintf("tsv_files.%s.stale_count", event.Name), event.Count, 1.0)
 		totalStaleCount += event.Count
 	}
-	_ = r.stats.Gauge("tsv_files.total_stale_count", totalStaleCount, 1.0)
+	r.stats.SafeGauge("tsv_files.total_stale_count", totalStaleCount, 1.0)
 	return nil
 }
 

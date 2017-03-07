@@ -15,7 +15,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager/s3manageriface"
-	"github.com/cactus/go-statsd-client/statsd"
 	"github.com/twitchscience/aws_utils/logger"
 	"github.com/twitchscience/rs_ingester/blueprint"
 	"github.com/twitchscience/rs_ingester/control"
@@ -24,9 +23,9 @@ import (
 
 	"github.com/twitchscience/rs_ingester/backend"
 	"github.com/twitchscience/rs_ingester/healthcheck"
-	"github.com/twitchscience/rs_ingester/lib"
 	"github.com/twitchscience/rs_ingester/loadclient"
 	"github.com/twitchscience/rs_ingester/metadata"
+	"github.com/twitchscience/rs_ingester/monitoring"
 	"github.com/twitchscience/rs_ingester/reporter"
 )
 
@@ -57,7 +56,7 @@ type loadWorker struct {
 	Loader          loadclient.Loader
 }
 
-func (i *loadWorker) Work(stats statsd.Statter) {
+func (i *loadWorker) Work(stats monitoring.SafeStatter) {
 
 	c := i.MetadataBackend.LoadReady()
 	for load := range c {
@@ -73,29 +72,21 @@ func (i *loadWorker) Work(stats statsd.Statter) {
 			logfields.WithError(err).WithField("retryable", err.Retryable()).
 				Error("Error loading files into table.")
 
-			statsdErr := stats.Inc("manifest_load.failures", 1, 1.0)
-			if statsdErr != nil {
-				logger.WithError(statsdErr).Printf("Error sending manifest_load.failures message to statsd")
-			}
+			stats.SafeInc("manifest_load.failures", 1, 1.0)
 			continue
 		}
 		logfields.Info("Loaded manifest into table")
 		i.MetadataBackend.LoadDone(load.UUID)
 
-		statsdErr := stats.Inc("manifest_load.count", 1, 1.0)
-		if statsdErr != nil {
-			logger.WithError(statsdErr).Printf("Error sending manifest_load.count message to statsd")
-		}
-		statsdEvent := fmt.Sprintf("tsv_files.%s.loaded", load.TableName)
-		statsdErr = stats.Inc(statsdEvent, int64(len(load.Loads)), 1.0)
-		if statsdErr != nil {
-			logger.WithError(statsdErr).Printf("Error sending %s message to statsd", statsdEvent)
-		}
+		stats.SafeInc("manifest_load.count", 1, 1.0)
+		statsdPattern := "tsv_files.%s.loaded"
+		stats.SafeInc(fmt.Sprintf(statsdPattern, load.TableName), int64(len(load.Loads)), 1.0)
+		stats.SafeInc(fmt.Sprintf(statsdPattern, "total"), int64(len(load.Loads)), 1.0)
 	}
 	workerGroup.Done()
 }
 
-func startWorkers(s3Uploader s3manageriface.UploaderAPI, b metadata.Backend, stats statsd.Statter, aceBackend backend.Backend) ([]loadWorker, error) {
+func startWorkers(s3Uploader s3manageriface.UploaderAPI, b metadata.Backend, stats monitoring.SafeStatter, aceBackend backend.Backend) ([]loadWorker, error) {
 	workers := make([]loadWorker, poolSize)
 	for i := 0; i < poolSize; i++ {
 		loadclient, err := loadclient.NewRSLoader(s3Uploader, aceBackend, manifestBucket, stats)
@@ -135,7 +126,7 @@ func main() {
 	flag.Parse()
 	pgConfig.LoadAgeTrigger = time.Second * time.Duration(loadAgeSeconds)
 
-	stats, err := lib.InitStats(statsPrefix)
+	stats, err := monitoring.InitStats(statsPrefix)
 	if err != nil {
 		logger.WithError(err).Fatal("Failed to setup statter")
 	}
