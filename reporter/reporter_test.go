@@ -14,8 +14,7 @@ import (
 
 // MockReader mocks what's minimally required to obtain a custom list of events pending loads
 type MockReader struct {
-	eventsInQueue []metadata.Event
-	staleEvents   []metadata.Event
+	pendingLoadsStats []*metadata.PendingLoadStats
 }
 
 func (m *MockReader) Versions() (map[string]int, error) {
@@ -30,11 +29,8 @@ func (m *MockReader) TSVVersionExists(table string, version int) (bool, error) {
 func (m *MockReader) PrioritizeTSVVersion(table string, version int) error {
 	return nil
 }
-func (m *MockReader) EventsInQueue() ([]metadata.Event, error) {
-	return m.eventsInQueue, nil
-}
-func (m *MockReader) StaleEvents() ([]metadata.Event, error) {
-	return m.staleEvents, nil
+func (m *MockReader) StatsForPendingLoads() ([]*metadata.PendingLoadStats, error) {
+	return m.pendingLoadsStats, nil
 }
 
 // TestSendStats check we send the right stats given a fixed list of pending events
@@ -51,22 +47,27 @@ func TestSendStats(t *testing.T) {
 	}
 
 	mockBackend := &MockReader{
-		[]metadata.Event{
+		[]*metadata.PendingLoadStats{
 			{
-				Name:  "event_1",
-				Count: 1,
-				MinTS: unixEpoch,
+				Type: metadata.PendingInQueue,
+				Stats: []*metadata.EventStats{
+					&metadata.EventStats{Event: "event_1", Count: 1},
+					&metadata.EventStats{Event: "event_2"},
+				},
 			},
 			{
-				Name:  "event_2",
-				Count: 2,
-				MinTS: unixEpoch,
+				Type: metadata.PendingStale,
+				Stats: []*metadata.EventStats{
+					&metadata.EventStats{Event: "event_1", MinTS: unixEpoch},
+					&metadata.EventStats{Event: "event_2"},
+				},
 			},
-		},
-		[]metadata.Event{
 			{
-				Name:  "event_3",
-				Count: 2,
+				Type: metadata.PendingMigration,
+				Stats: []*metadata.EventStats{
+					&metadata.EventStats{Event: "event_1", Count: 2},
+					&metadata.EventStats{Event: "event_2", Count: 1},
+				},
 			},
 		},
 	}
@@ -81,20 +82,35 @@ func TestSendStats(t *testing.T) {
 	}
 
 	statsSent := rs.GetSent()
-	if len(statsSent) != 8 {
-		t.Fatalf("failed to capture right amount of events; got: %d, expected: 6", len(statsSent))
+	if len(statsSent) != 18 {
+		t.Fatalf("failed to capture right amount of events; got: %d, expected: 18", len(statsSent))
 	}
 	expectedStats := statsdtest.Stats{
+		// in queue
 		{[]byte("t.tsv_files.event_1.in_queue_count:1|g"), "t.tsv_files.event_1.in_queue_count", "1", "g", "", true},
-		{[]byte("t.tsv_files.event_1.age_in_ms:0|g"), "t.tsv_files.event_1.age_in_ms", "0", "g", "", true},
-		{[]byte("t.tsv_files.event_2.in_queue_count:2|g"), "t.tsv_files.event_2.in_queue_count", "2", "g", "", true},
-		{[]byte("t.tsv_files.event_2.age_in_ms:0|g"), "t.tsv_files.event_2.age_in_ms", "0", "g", "", true},
-		{[]byte("t.tsv_files.total_in_queue_count:3|g"), "t.tsv_files.total_in_queue_count", "3", "g", "", true},
-		{[]byte("t.tsv_files.max_age_in_ms:0|g"), "t.tsv_files.max_age_in_ms", "0", "g", "", true},
-		{[]byte("t.tsv_files.event_3.stale_count:2|g"), "t.tsv_files.event_3.stale_count", "2", "g", "", true},
-		{[]byte("t.tsv_files.total_stale_count:2|g"), "t.tsv_files.total_stale_count", "2", "g", "", true},
+		{[]byte("t.tsv_files.event_1.in_queue_age_in_ms:0|g"), "t.tsv_files.event_1.in_queue_age_in_ms", "0", "g", "", true},
+		{[]byte("t.tsv_files.event_2.in_queue_count:0|g"), "t.tsv_files.event_2.in_queue_count", "0", "g", "", true},
+		{[]byte("t.tsv_files.event_2.in_queue_age_in_ms:0|g"), "t.tsv_files.event_2.in_queue_age_in_ms", "0", "g", "", true},
+		{[]byte("t.tsv_files.in_queue_total_count:1|g"), "t.tsv_files.in_queue_total_count", "1", "g", "", true},
+		{[]byte("t.tsv_files.in_queue_max_age_in_ms:0|g"), "t.tsv_files.in_queue_max_age_in_ms", "0", "g", "", true},
+
+		// stale
+		{[]byte("t.tsv_files.event_1.stale_count:0|g"), "t.tsv_files.event_1.stale_count", "0", "g", "", true},
+		{[]byte("t.tsv_files.event_1.stale_age_in_ms:0|g"), "t.tsv_files.event_1.stale_age_in_ms", "0", "g", "", true},
+		{[]byte("t.tsv_files.event_2.stale_count:0|g"), "t.tsv_files.event_2.stale_count", "0", "g", "", true},
+		{[]byte("t.tsv_files.event_2.stale_age_in_ms:0|g"), "t.tsv_files.event_2.stale_age_in_ms", "0", "g", "", true},
+		{[]byte("t.tsv_files.stale_total_count:0|g"), "t.tsv_files.stale_total_count", "0", "g", "", true},
+		{[]byte("t.tsv_files.stale_max_age_in_ms:0|g"), "t.tsv_files.stale_max_age_in_ms", "0", "g", "", true},
+
+		// pending migration
+		{[]byte("t.tsv_files.event_1.pending_migration_count:2|g"), "t.tsv_files.event_1.pending_migration_count", "2", "g", "", true},
+		{[]byte("t.tsv_files.event_1.pending_migration_age_in_ms:0|g"), "t.tsv_files.event_1.pending_migration_age_in_ms", "0", "g", "", true},
+		{[]byte("t.tsv_files.event_2.pending_migration_count:1|g"), "t.tsv_files.event_2.pending_migration_count", "1", "g", "", true},
+		{[]byte("t.tsv_files.event_2.pending_migration_age_in_ms:0|g"), "t.tsv_files.event_2.pending_migration_age_in_ms", "0", "g", "", true},
+		{[]byte("t.tsv_files.pending_migration_total_count:3|g"), "t.tsv_files.pending_migration_total_count", "3", "g", "", true},
+		{[]byte("t.tsv_files.pending_migration_max_age_in_ms:0|g"), "t.tsv_files.pending_migration_max_age_in_ms", "0", "g", "", true},
 	}
 	if !reflect.DeepEqual(statsSent, expectedStats) {
-		t.Fatalf("Failed to send right stats:\ngot: %s,\nwant: %s", statsSent, expectedStats)
+		t.Fatalf("Failed to send right stats:\ngot:\n%s\n,want:\n%s", statsSent, expectedStats)
 	}
 }

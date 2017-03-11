@@ -22,8 +22,7 @@ type Reader interface {
 	PingDB() error
 	TSVVersionExists(table string, version int) (bool, error)
 	PrioritizeTSVVersion(table string, version int) error
-	EventsInQueue() ([]Event, error)
-	StaleEvents() ([]Event, error)
+	StatsForPendingLoads() ([]*PendingLoadStats, error)
 }
 
 // Backend specifies the interface for load state
@@ -41,9 +40,29 @@ type Storer interface {
 	Close()
 }
 
-// Event represents an event, or table, that needs to be loaded
-type Event struct {
-	Name  string
+// EventStats defines a set of statistics recorded for a particular event.
+type EventStats struct {
+	Event string
 	Count int64
 	MinTS time.Time
+}
+
+// PendingLoadType specifies a particular reason for events to be pending load.
+type PendingLoadType string
+
+const (
+	// PendingInQueue are loads waiting in active queue.
+	PendingInQueue PendingLoadType = "in_queue"
+
+	// PendingStale are loads retried a maximum amount of times.
+	PendingStale PendingLoadType = "stale"
+
+	// PendingMigration are loads blocked on version migration.
+	PendingMigration PendingLoadType = "pending_migration"
+)
+
+// PendingLoadStats stores aggregated stats for events in a particular type of pending load group.
+type PendingLoadStats struct {
+	Type  PendingLoadType
+	Stats []*EventStats
 }
