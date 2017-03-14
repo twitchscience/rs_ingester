@@ -647,24 +647,24 @@ func (b *postgresBackend) PrioritizeTSVVersion(table string, version int) error 
 	return err
 }
 
+func findOrCreateStat(loadStats *PendingLoadStats, event string) *EventStats {
+	for _, s := range loadStats.Stats {
+		if s.Event == event {
+			return s
+		}
+	}
+	eventStats := &EventStats{}
+	loadStats.Stats = append(loadStats.Stats, eventStats)
+	return eventStats
+}
+
 func updateStats(loadStats *PendingLoadStats, event string, cnt int64, minTS time.Time) {
 	if cnt == 0 {
 		return
 	}
-	var eventStats *EventStats
-	found := false
-	for _, s := range loadStats.Stats {
-		if s.Event == event {
-			found = true
-			eventStats = s
-		}
-	}
-	if !found {
-		eventStats = &EventStats{}
-		loadStats.Stats = append(loadStats.Stats, eventStats)
-	}
+	eventStats := findOrCreateStat(loadStats, event)
 	eventStats.Count += cnt
-	if time.Since(minTS) > 0 && (eventStats.MinTS.IsZero() || eventStats.MinTS.After(minTS)) {
+	if eventStats.MinTS.IsZero() || eventStats.MinTS.After(minTS) {
 		eventStats.MinTS = minTS
 	}
 }
@@ -675,31 +675,20 @@ func (b *postgresBackend) StatsForPendingLoads() ([]*PendingLoadStats, error) {
 		SELECT 
 			tablename,
 			tableversion,
-			min(in_queue_ts),
-			min(stale_ts),
-			count(in_queue),
-			count(stale)
+			is_stale,
+			min(ts),
+			count(*)
 		FROM (
 			SELECT 
 				tablename,
 				tableversion,
-				CASE
-					WHEN retry_count IS NULL OR retry_count < $1 THEN ts ELSE 'tomorrow'::timestamp
-				END in_queue_ts,
-				CASE 
-					WHEN retry_count IS NOT NULL AND retry_count >= $1 THEN ts ELSE 'tomorrow'::timestamp
-				END stale_ts,
-				CASE
-					WHEN retry_count IS NULL OR retry_count < $1 THEN 1
-				END in_queue,
-				CASE
-					WHEN retry_count IS NOT NULL AND retry_count >= $1 THEN 1
-				END stale
+				retry_count IS NOT NULL AND retry_count >= $1 AS is_stale,
+				ts
 			FROM `+constants.TsvTable+`
 			LEFT JOIN `+constants.ManifestTable+`
 				ON manifest_uuid=uuid
 		) tbl
-		GROUP BY 1, 2
+		GROUP BY 1, 2, 3
 	`, maxLoadRetryCount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %v", err)
@@ -715,31 +704,27 @@ func (b *postgresBackend) StatsForPendingLoads() ([]*PendingLoadStats, error) {
 	// and identify which ones are pending migration in the logic below
 	var table string
 	var version int64
-	var minInQueueTS time.Time
-	var minStaleTS time.Time
-	var inQueueCnt int64
-	var staleCnt int64
+	var isStale bool
+	var minTS time.Time
+	var cnt int64
 	inQueueStats := &PendingLoadStats{Type: PendingInQueue, Stats: []*EventStats{}}
 	staleStats := &PendingLoadStats{Type: PendingStale, Stats: []*EventStats{}}
 	pendingMigrationStats := &PendingLoadStats{Type: PendingMigration, Stats: []*EventStats{}}
 	for rows.Next() {
-		err = rows.Scan(&table, &version, &minInQueueTS, &minStaleTS, &inQueueCnt, &staleCnt)
+		err = rows.Scan(&table, &version, &isStale, &minTS, &cnt)
 		if err != nil {
 			return nil, fmt.Errorf("error scanning event rows: %v", err)
 		}
-
-		var pendingMigrationCnt int64
-		var minPendingMigrationTS time.Time
-		currentVersion, ok := b.versions.Get(table)
-		if ok && int64(currentVersion) < version {
-			pendingMigrationCnt = inQueueCnt
-			inQueueCnt = 0
-			minPendingMigrationTS = minInQueueTS
-			minInQueueTS = time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC) // Time zero
+		if isStale {
+			updateStats(staleStats, table, cnt, minTS)
+		} else {
+			currentVersion, ok := b.versions.Get(table)
+			if ok && int64(currentVersion) < version {
+				updateStats(pendingMigrationStats, table, cnt, minTS)
+			} else {
+				updateStats(inQueueStats, table, cnt, minTS)
+			}
 		}
-		updateStats(inQueueStats, table, inQueueCnt, minInQueueTS)
-		updateStats(staleStats, table, staleCnt, minStaleTS)
-		updateStats(pendingMigrationStats, table, pendingMigrationCnt, minPendingMigrationTS)
 	}
 	pendingLoadStats := []*PendingLoadStats{inQueueStats, staleStats, pendingMigrationStats}
 	return pendingLoadStats, nil
