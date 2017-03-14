@@ -647,8 +647,49 @@ func (b *postgresBackend) PrioritizeTSVVersion(table string, version int) error 
 	return err
 }
 
-func (b *postgresBackend) eventScannerHelper(query string, args ...interface{}) ([]Event, error) {
-	rows, err := b.db.Query(query, args...)
+func findOrCreateStat(loadStats *PendingLoadStats, event string) *EventStats {
+	for _, s := range loadStats.Stats {
+		if s.Event == event {
+			return s
+		}
+	}
+	eventStats := &EventStats{}
+	loadStats.Stats = append(loadStats.Stats, eventStats)
+	return eventStats
+}
+
+func updateStats(loadStats *PendingLoadStats, event string, cnt int64, minTS time.Time) {
+	if cnt == 0 {
+		return
+	}
+	eventStats := findOrCreateStat(loadStats, event)
+	eventStats.Count += cnt
+	if eventStats.MinTS.IsZero() || eventStats.MinTS.After(minTS) {
+		eventStats.MinTS = minTS
+	}
+}
+
+// StatsForPendingLoads returns aggregates stats for each type of pending load classification.
+func (b *postgresBackend) StatsForPendingLoads() ([]*PendingLoadStats, error) {
+	rows, err := b.db.Query(`
+		SELECT 
+			tablename,
+			tableversion,
+			is_stale,
+			min(ts),
+			count(*)
+		FROM (
+			SELECT 
+				tablename,
+				tableversion,
+				retry_count IS NOT NULL AND retry_count >= $1 AS is_stale,
+				ts
+			FROM `+constants.TsvTable+`
+			LEFT JOIN `+constants.ManifestTable+`
+				ON manifest_uuid=uuid
+		) tbl
+		GROUP BY 1, 2, 3
+	`, maxLoadRetryCount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %v", err)
 	}
@@ -659,41 +700,32 @@ func (b *postgresBackend) eventScannerHelper(query string, args ...interface{}) 
 		}
 	}()
 
+	// Since we don't store the current event versions in the db, we'll take the returned groups
+	// and identify which ones are pending migration in the logic below
 	var table string
-	var count int64
+	var version int64
+	var isStale bool
 	var minTS time.Time
-	var events []Event
+	var cnt int64
+	inQueueStats := &PendingLoadStats{Type: PendingInQueue, Stats: []*EventStats{}}
+	staleStats := &PendingLoadStats{Type: PendingStale, Stats: []*EventStats{}}
+	pendingMigrationStats := &PendingLoadStats{Type: PendingMigration, Stats: []*EventStats{}}
 	for rows.Next() {
-		if err = rows.Scan(&table, &count, &minTS); err != nil {
+		err = rows.Scan(&table, &version, &isStale, &minTS, &cnt)
+		if err != nil {
 			return nil, fmt.Errorf("error scanning event rows: %v", err)
 		}
-		events = append(events, Event{
-			Name:  table,
-			Count: count,
-			MinTS: minTS,
-		})
+		if isStale {
+			updateStats(staleStats, table, cnt, minTS)
+		} else {
+			currentVersion, ok := b.versions.Get(table)
+			if ok && int64(currentVersion) < version {
+				updateStats(pendingMigrationStats, table, cnt, minTS)
+			} else {
+				updateStats(inQueueStats, table, cnt, minTS)
+			}
+		}
 	}
-	return events, nil
-}
-
-// EventsInQueue returns events with manifest either scheduled or in the process of being loaded.
-func (b *postgresBackend) EventsInQueue() ([]Event, error) {
-	return b.eventScannerHelper(`
-		SELECT tablename, count(*) AS cnt, min(ts) AS min_ts
-		FROM `+constants.TsvTable+`
-		LEFT JOIN `+constants.ManifestTable+`
-			ON manifest_uuid=uuid
-		WHERE retry_count IS NULL OR retry_count < $1
-		GROUP BY tablename`, maxLoadRetryCount)
-}
-
-// StaleEvents returns events with manifest loads that were retried a maximum amount of times.
-func (b *postgresBackend) StaleEvents() ([]Event, error) {
-	return b.eventScannerHelper(`
-		SELECT tablename, count(*) AS cnt, min(ts) AS min_ts
-		FROM `+constants.TsvTable+`
-		LEFT JOIN `+constants.ManifestTable+`
-			ON manifest_uuid=uuid
-		WHERE retry_count IS NOT NULL AND retry_count >= $1
-		GROUP BY tablename`, maxLoadRetryCount)
+	pendingLoadStats := []*PendingLoadStats{inQueueStats, staleStats, pendingMigrationStats}
+	return pendingLoadStats, nil
 }

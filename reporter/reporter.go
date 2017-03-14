@@ -47,61 +47,50 @@ func (r *Reporter) reporterThread() {
 	}
 }
 
-func (r *Reporter) sendInQueueEventStats() error {
-	events, err := r.backend.EventsInQueue()
-	if err != nil {
-		return err
-	}
-
-	logger.WithField("count", len(events)).Infof("Found events in queue for loading")
-	var totalInQueueCount int64
-	var maxAgeInMS int64
-	for _, event := range events {
-		var ageInMS int64
-		if event.MinTS.Unix() == 0 {
-			// To force-load an event, we change the ts to the Unix epoch. For now we'll handle
-			// this case as age 0 to not mess with the metrics
-			ageInMS = 0
-		} else {
-			ageInMS = int64(time.Since(event.MinTS) / time.Millisecond)
-		}
-		r.stats.SafeGauge(fmt.Sprintf("tsv_files.%s.in_queue_count", event.Name), event.Count, 1.0)
-		r.stats.SafeGauge(fmt.Sprintf("tsv_files.%s.age_in_ms", event.Name), ageInMS, 1.0)
-		totalInQueueCount += event.Count
-		if ageInMS > maxAgeInMS {
-			maxAgeInMS = ageInMS
-		}
-	}
-	r.stats.SafeGauge("tsv_files.total_in_queue_count", totalInQueueCount, 1.0)
-	r.stats.SafeGauge("tsv_files.max_age_in_ms", maxAgeInMS, 1.0)
-	return nil
-}
-
-func (r *Reporter) sendStaleEventStats() error {
-	events, err := r.backend.StaleEvents()
-	if err != nil {
-		return err
-	}
-
-	logger.WithField("count", len(events)).Infof("Found stale events")
-	var totalStaleCount int64
-	for _, event := range events {
-		r.stats.SafeGauge(fmt.Sprintf("tsv_files.%s.stale_count", event.Name), event.Count, 1.0)
-		totalStaleCount += event.Count
-	}
-	r.stats.SafeGauge("tsv_files.total_stale_count", totalStaleCount, 1.0)
-	return nil
-}
-
 func (r *Reporter) sendStats() error {
-	err := r.sendInQueueEventStats()
+	allStats, err := r.backend.StatsForPendingLoads()
 	if err != nil {
 		return err
 	}
-	return r.sendStaleEventStats()
+
+	pendingLoadsCnt := 0
+	for _, pendingLoadStats := range allStats {
+		pendingLoadsCnt += len(pendingLoadStats.Stats)
+		r.sendPendingLoadStats(pendingLoadStats)
+	}
+	if pendingLoadsCnt > 0 {
+		logger.WithField("count", pendingLoadsCnt).Info("Found events in queue for loading")
+	} else {
+		logger.Info("Found no events in queue for loading")
+	}
+	return nil
 }
 
 // Close is a blocking function that waits to cleanly shut down reporting.
 func (r *Reporter) Close() {
 	r.closer <- true
+}
+
+// sendPendingLoadStats sends stats for events pending load to graphite under a particular label.
+func (r *Reporter) sendPendingLoadStats(pendingLoadStats *metadata.PendingLoadStats) {
+	var totalCount int64
+	var maxAgeInMS int64
+	label := pendingLoadStats.Type
+	for _, eventStats := range pendingLoadStats.Stats {
+		var ageInMS int64
+		if !eventStats.MinTS.IsZero() && eventStats.MinTS.Unix() > 0 {
+			// To force-load an event, we change the ts to the Unix epoch. For now we'll handle
+			// this case as age 0 to not mess with the metrics
+			ageInMS = int64(time.Since(eventStats.MinTS) / time.Millisecond)
+		}
+		metricPrefix := fmt.Sprintf("tsv_files.%s.%s", eventStats.Event, label)
+		r.stats.SafeGauge(metricPrefix+"_count", eventStats.Count, 1.0)
+		r.stats.SafeGauge(metricPrefix+"_age_in_ms", ageInMS, 1.0)
+		totalCount += eventStats.Count
+		if ageInMS > maxAgeInMS {
+			maxAgeInMS = ageInMS
+		}
+	}
+	r.stats.SafeGauge(fmt.Sprintf("tsv_files.%s_total_count", label), totalCount, 1.0)
+	r.stats.SafeGauge(fmt.Sprintf("tsv_files.%s_max_age_in_ms", label), maxAgeInMS, 1.0)
 }
