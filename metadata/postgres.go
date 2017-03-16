@@ -653,7 +653,7 @@ func findOrCreateStat(loadStats *PendingLoadStats, event string) *EventStats {
 			return s
 		}
 	}
-	eventStats := &EventStats{}
+	eventStats := &EventStats{Event: event}
 	loadStats.Stats = append(loadStats.Stats, eventStats)
 	return eventStats
 }
