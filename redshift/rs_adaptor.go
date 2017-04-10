@@ -66,65 +66,6 @@ func BuildRSConnection(pgConnect string, maxOpenConnections int) (*RSConnection,
 	}, nil
 }
 
-func (rs *RSConnection) mungeTable(rows *sql.Rows, maxRowsReturned int, start time.Time) *Table {
-	t := new(Table)
-	cols, err := rows.Columns()
-	t.Columns = cols
-	if err != nil {
-		return &Table{
-			Err: err,
-		}
-	}
-
-	// Make a slice for the values
-	values := make([]*interface{}, len(t.Columns))
-
-	// rows.Scan wants '[]interface{}' as an argument, so we must copy the
-	// references into such a slice
-	// See http://code.google.com/p/go-wiki/wiki/InterfaceSlice for details
-	scanArgs := make([]interface{}, len(values))
-	for i := range values {
-		scanArgs[i] = &values[i]
-	}
-
-	rowsScanned := 0
-	for rows.Next() {
-		if rowsScanned > maxRowsReturned {
-			break
-		}
-
-		err := rows.Scan(scanArgs...)
-		if err != nil {
-			return &Table{
-				Err: err,
-			}
-		}
-		row := make([]interface{}, len(t.Columns))
-		for i, col := range values {
-			if col == nil {
-				row[i] = nil
-			} else {
-				switch (*col).(type) {
-				case []byte:
-					row[i] = string((*col).([]byte))
-				default:
-					row[i] = *col
-				}
-			}
-		}
-		t.Rows = append(t.Rows, row)
-		rowsScanned++
-	}
-	t.TimeTaken = time.Since(start)
-	defer func() {
-		err := rows.Close()
-		if err != nil {
-			logger.WithError(err).Error("Could not close rows object")
-		}
-	}()
-	return t
-}
-
 //Listen continuously listens on inbound requests to exec on the RSconnection
 func (rs *RSConnection) Listen() {
 	for req := range rs.InboundRequests {

@@ -136,7 +136,10 @@ func main() {
 	logger.Info("starting")
 	defer logger.LogPanic()
 
-	session := session.New()
+	session, err := session.NewSession()
+	if err != nil {
+		logger.WithError(err).Fatal("Failed to setup aws session")
+	}
 	s3Uploader := s3manager.NewUploader(session)
 	aceBackend, err := backend.BuildRedshiftBackend(session.Config.Credentials, poolSize+healthCheckPoolSize, rsURL)
 	if err != nil {

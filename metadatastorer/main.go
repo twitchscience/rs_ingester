@@ -71,7 +71,10 @@ func main() {
 		logger.WithError(err).Fatal("Error initializing PostgresStorer")
 	}
 
-	session := session.New()
+	session, err := session.NewSession()
+	if err != nil {
+		logger.WithError(err).Fatal("Failed to setup aws session")
+	}
 	// In cases we get a temporary influx of traffic, want to be resilient.
 	sqs := sqs.New(session, aws.NewConfig().WithMaxRetries(10))
 
