@@ -1,3 +1,7 @@
+/*
+MetadataStorer fetches pointers to processed TSV files and stores
+them into a Postgres instance.
+*/
 package main
 
 import (
