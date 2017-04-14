@@ -1,10 +1,12 @@
 /*
-RS Ingester loads processed event data into a Redshift database and
-migrates schemas when they change. It receives pointers to tsv files from
-the Spade processor, loads the files in batches, and migrates tables.
+Package rs_ingester provides servers which load processed event data from
+the Spade pipeline into a Redshift database.It receives pointers to tsv files
+from the Spade processor, loads the files in batches, and migrates tables when
+they are changed in Blueprint.
 
 The outer binary is aliased as rsloadmanager, and is responsible for running
-loads, retrying loads on failure, and executing migrations on the Redshift instance.
+loads, retrying loads on failure, and executing migrations on the Redshift
+instance.
 */
 package main
 
