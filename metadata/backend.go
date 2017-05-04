@@ -21,7 +21,7 @@ type Reader interface {
 	Versions() (map[string]int, error)
 	PingDB() error
 	TSVVersionExists(table string, version int) (bool, error)
-	PrioritizeTSVVersion(table string, version int) error
+	ForceLoad(table string, requester string) error
 	StatsForPendingLoads() ([]*PendingLoadStats, error)
 }
 

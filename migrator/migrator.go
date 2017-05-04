@@ -102,7 +102,7 @@ func (m *Migrator) isOldVersionCleared(table string, version int) (bool, error) 
 	if !exists {
 		return true, nil
 	}
-	return false, m.metaBackend.PrioritizeTSVVersion(table, version)
+	return false, m.metaBackend.ForceLoad(table, "migrator")
 }
 
 func (m *Migrator) migrate(table string, to int) error {

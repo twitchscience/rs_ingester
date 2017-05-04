@@ -21,12 +21,11 @@ func NewControlBackend(metaReader metadata.Reader, tableVersions versions.Getter
 	return &Backend{metaReader, tableVersions, versionIncrement}
 }
 
-// ForceIngest makes the given table the highest priority to load next
-func (cBackend *Backend) ForceIngest(tableName string) error {
-	currentVersion, _ := cBackend.versions.Get(tableName)
-	err := cBackend.metaReader.PrioritizeTSVVersion(tableName, currentVersion)
+// ForceLoad makes the given table the highest priority to load next
+func (cBackend *Backend) ForceLoad(tableName string, requester string) error {
+	err := cBackend.metaReader.ForceLoad(tableName, requester)
 	if err != nil {
-		return fmt.Errorf("Error executing query: %v", err)
+		return fmt.Errorf("Error executing force load: %v", err)
 	}
 	return nil
 }

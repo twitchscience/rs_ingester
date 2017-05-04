@@ -26,7 +26,7 @@ func (m *MockReader) PingDB() error {
 func (m *MockReader) TSVVersionExists(table string, version int) (bool, error) {
 	return false, nil
 }
-func (m *MockReader) PrioritizeTSVVersion(table string, version int) error {
+func (m *MockReader) ForceLoad(table string, requester string) error {
 	return nil
 }
 func (m *MockReader) StatsForPendingLoads() ([]*metadata.PendingLoadStats, error) {
@@ -51,22 +51,22 @@ func TestSendStats(t *testing.T) {
 			{
 				Type: metadata.PendingInQueue,
 				Stats: []*metadata.EventStats{
-					&metadata.EventStats{Event: "event_1", Count: 1},
-					&metadata.EventStats{Event: "event_2"},
+					{Event: "event_1", Count: 1},
+					{Event: "event_2"},
 				},
 			},
 			{
 				Type: metadata.PendingStale,
 				Stats: []*metadata.EventStats{
-					&metadata.EventStats{Event: "event_1", MinTS: unixEpoch},
-					&metadata.EventStats{Event: "event_2"},
+					{Event: "event_1", MinTS: unixEpoch},
+					{Event: "event_2"},
 				},
 			},
 			{
 				Type: metadata.PendingMigration,
 				Stats: []*metadata.EventStats{
-					&metadata.EventStats{Event: "event_1", Count: 2},
-					&metadata.EventStats{Event: "event_2", Count: 1},
+					{Event: "event_1", Count: 2},
+					{Event: "event_2", Count: 1},
 				},
 			},
 		},

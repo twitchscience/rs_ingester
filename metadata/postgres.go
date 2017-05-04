@@ -13,7 +13,6 @@ import (
 	_ "github.com/lib/pq" // To register "postgres" with database/sql
 	"github.com/pborman/uuid"
 	"github.com/twitchscience/aws_utils/logger"
-	"github.com/twitchscience/rs_ingester/constants"
 	"github.com/twitchscience/rs_ingester/versions"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
@@ -28,6 +27,12 @@ type PGConfig struct {
 
 type loadChecker interface {
 	CheckLoad(manifestUUID string) (scoop_protocol.LoadStatus, error)
+}
+
+type loadableTable struct {
+	name        string
+	version     int
+	forceLoadID *int
 }
 
 type postgresBackend struct {
@@ -121,7 +126,7 @@ func NewPostgresLoader(cfg *PGConfig, lChecker loadChecker, versions versions.Ge
 
 func (b *postgresBackend) InsertLoad(load *Load) error {
 	_, err := b.db.Exec(
-		"INSERT INTO "+constants.TsvTable+" (tablename, keyname, tableversion, ts) VALUES ($1, $2, $3, $4)",
+		"INSERT INTO tsv (tablename, keyname, tableversion, ts) VALUES ($1, $2, $3, $4)",
 		load.TableName,
 		load.KeyName,
 		load.TableVersion,
@@ -191,12 +196,12 @@ func (b *postgresBackend) Close() {
 
 // Non-commiting load done helper function
 func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUUID string) error {
-	_, err := tx.Exec("DELETE FROM "+constants.TsvTable+" WHERE manifest_uuid = $1", manifestUUID)
+	_, err := tx.Exec("DELETE FROM tsv WHERE manifest_uuid = $1", manifestUUID)
 	if err != nil {
 		return rollbackAndError(tx, err)
 	}
 
-	_, err = tx.Exec("DELETE FROM "+constants.ManifestTable+" WHERE uuid = $1", manifestUUID)
+	_, err = tx.Exec("DELETE FROM manifest WHERE uuid = $1", manifestUUID)
 	if err != nil {
 		return rollbackAndError(tx, err)
 	}
@@ -205,7 +210,7 @@ func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUUID string) error 
 }
 
 func (b *postgresBackend) loadErrorHelper(tx *sql.Tx, manifestUUID, loadError string) error {
-	_, err := tx.Exec("UPDATE "+constants.ManifestTable+" SET retry_ts = $1, last_error = $2 WHERE uuid = $3",
+	_, err := tx.Exec("UPDATE manifest SET retry_ts = $1, last_error = $2 WHERE uuid = $3",
 		time.Now().In(time.UTC).Add(errorRetryDelay),
 		loadError,
 		manifestUUID)
@@ -346,12 +351,12 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadManifest, error) {
 			logger.WithField("loadUUID", loadUUID).WithField("loadStatus", loadStatus).
 				Infof("Load is in status %s, deleting manifest so it retries", loadStatus)
 
-			_, err = tx.Exec(`UPDATE `+constants.TsvTable+` SET manifest_uuid = NULL
+			_, err = tx.Exec(`UPDATE tsv SET manifest_uuid = NULL
                               WHERE manifest_uuid = $1`, loadUUID)
 			if err != nil {
 				return nil, rollbackAndError(tx, err)
 			}
-			_, err = tx.Exec("DELETE FROM "+constants.ManifestTable+" WHERE uuid = $1", loadUUID)
+			_, err = tx.Exec("DELETE FROM manifest WHERE uuid = $1", loadUUID)
 			if err != nil {
 				return nil, rollbackAndError(tx, err)
 			}
@@ -374,12 +379,12 @@ func (b *postgresBackend) fetchStaleLoad() (*LoadManifest, error) {
 func staleLoadMetadata(tx *sql.Tx) (loadUUID string, lastError sql.NullString, err error) {
 	now := time.Now().In(time.UTC)
 	retryTs := now.Add(staleRecoverDelay)
-	rows, err := tx.Query(`UPDATE `+constants.ManifestTable+`
+	rows, err := tx.Query(`UPDATE manifest
                                SET retry_ts = $1,
                                    retry_count = retry_count + 1
                                WHERE uuid IN (
                                  SELECT uuid
-                                 FROM `+constants.ManifestTable+`
+                                 FROM manifest
                                  WHERE retry_ts < $2 AND retry_count < $3
                                  ORDER BY retry_ts ASC
                                  LIMIT 1
@@ -436,22 +441,26 @@ func (b *postgresBackend) PingDB() error {
 	return nil
 }
 
-func (b *postgresBackend) findTableVersionToLoad(tx *sql.Tx) (string, int, error) {
-	rows, err := tx.Query(fmt.Sprintf(`
-SELECT tablename, tableversion FROM
-	(SELECT tablename, tableversion, min(ts) AS oldest, count(*) AS cnt
-		FROM %s WHERE manifest_uuid IS NULL
-		GROUP BY tablename, tableversion) a
-WHERE (cnt > $1 OR oldest < $2)
-ORDER BY oldest ASC
-LIMIT $3
-`, constants.TsvTable),
+func (b *postgresBackend) findTableVersionToLoad(tx *sql.Tx) (*loadableTable, error) {
+	rows, err := tx.Query(`
+		SELECT tablename, tableversion, force_load_id FROM
+			(SELECT tsv.tablename,
+				tableversion,
+				min(tsv.ts) AS oldest,
+				force_load.id AS force_load_id,
+				count(*) AS cnt
+			FROM tsv LEFT JOIN force_load ON tsv.tablename=force_load.tablename
+			AND manifest_uuid IS NULL AND force_load.started IS NULL
+			GROUP BY tsv.tablename, tableversion, force_load_id) a
+		WHERE (cnt > $1 OR oldest < $2 OR force_load_id IS NOT NULL)
+		ORDER BY force_load_id ASC, oldest ASC
+		LIMIT $3`,
 		b.cfg.LoadCountTrigger,
 		time.Now().In(time.UTC).Add(-b.cfg.LoadAgeTrigger),
 		tableToLoadSearchSize,
 	)
 	if err != nil {
-		return "", -1, fmt.Errorf("Error finding potential tables to load: %v", err)
+		return nil, fmt.Errorf("Error finding potential tables to load: %v", err)
 	}
 
 	defer func() {
@@ -461,26 +470,28 @@ LIMIT $3
 		}
 	}()
 
-	var table string
-	var version int
+	var tableToLoad loadableTable
 	found := false
 	for rows.Next() && !found {
-		if err = rows.Scan(&table, &version); err != nil {
-			return "", -1, fmt.Errorf("Error parsing rows when looking for potential tables to load: %v", err)
+		if err = rows.Scan(&tableToLoad.name, &tableToLoad.version, &tableToLoad.forceLoadID); err != nil {
+			return nil, fmt.Errorf("Error parsing rows when looking for potential tables to load: %v", err)
 		}
-		currentVersion, exists := b.versions.Get(table)
-		if exists && version < currentVersion {
-			logger.WithField("table", table).WithField("outdatedVersion", version).WithField("currentVersion", currentVersion).Error("Found a TSV with an outdated version")
+		currentVersion, exists := b.versions.Get(tableToLoad.name)
+		if exists && tableToLoad.version < currentVersion {
+			logger.WithField("table", tableToLoad.name).
+				WithField("outdatedVersion", tableToLoad.version).
+				WithField("currentVersion", currentVersion).
+				Error("Found a TSV with an outdated version")
 		}
-		if exists && version == currentVersion {
+		if exists && tableToLoad.version == currentVersion {
 			found = true
 		}
 	}
 	if !found {
 		logger.Info("Found no loads to do")
-		return "", -1, errorNoLoads
+		return nil, errorNoLoads
 	}
-	return table, version, nil
+	return &tableToLoad, nil
 }
 
 // fetchLoad returns the next load to do, or nil if there is no load available.
@@ -498,15 +509,15 @@ func (b *postgresBackend) fetchLoad() (*LoadManifest, error) {
 	manifestUUID := uuid.NewRandom().String()
 	retryTs := time.Now().In(time.UTC).Add(staleRetryDelay)
 
-	_, err = tx.Exec(`INSERT INTO `+constants.ManifestTable+` (uuid, retry_ts)
+	_, err = tx.Exec(`INSERT INTO manifest (uuid, retry_ts)
                       VALUES ($1, $2)
                      `, manifestUUID, retryTs)
 	if err != nil {
-		logger.WithError(err).Error("Error inserting into " + constants.ManifestTable)
+		logger.WithError(err).Error("Error inserting into manifest")
 		return nil, rollbackAndError(tx, err)
 	}
 
-	table, version, err := b.findTableVersionToLoad(tx)
+	tableToLoad, err := b.findTableVersionToLoad(tx)
 	if err != nil {
 		if err == errorNoLoads {
 			return nil, tx.Rollback()
@@ -515,18 +526,31 @@ func (b *postgresBackend) fetchLoad() (*LoadManifest, error) {
 	}
 
 	_, err = tx.Exec(
-		`UPDATE `+constants.TsvTable+` SET manifest_uuid = $1
+		`UPDATE tsv SET manifest_uuid = $1
          WHERE tablename = $2
          AND tableversion = $3
          AND manifest_uuid IS NULL
         `,
 		manifestUUID,
-		table,
-		version,
+		tableToLoad.name,
+		tableToLoad.version,
 	)
 
 	if err != nil {
 		return nil, rollbackAndError(tx, err)
+	}
+
+	if tableToLoad.forceLoadID != nil {
+		_, err = tx.Exec(
+			`UPDATE force_load SET started = NOW()
+			 WHERE id = $1 AND started IS NULL
+		`,
+			tableToLoad.forceLoadID,
+		)
+
+		if err != nil {
+			return nil, rollbackAndError(tx, err)
+		}
 	}
 
 	tsv, err := getLoadManifest(tx, manifestUUID)
@@ -544,7 +568,7 @@ func getLoadManifest(tx *sql.Tx, manifestUUID string) (*LoadManifest, error) {
 	var manifest LoadManifest
 	manifest.UUID = manifestUUID
 
-	rows, err := tx.Query("SELECT keyname, tablename FROM "+constants.TsvTable+" WHERE manifest_uuid = $1", manifestUUID)
+	rows, err := tx.Query("SELECT keyname, tablename FROM tsv WHERE manifest_uuid = $1", manifestUUID)
 	if err != nil {
 		return nil, err
 	}
@@ -588,7 +612,7 @@ func retrying(retryCount int, f func() error) (err error) {
 }
 
 func retryInTransaction(retryCount int, db *sql.DB, f func(tx *sql.Tx) error) error {
-	return retrying(dbRetryCount, func() error {
+	return retrying(retryCount, func() error {
 		tx, err := db.Begin()
 		if err != nil {
 			logger.WithError(err).Error("Error beginning transaction")
@@ -612,11 +636,11 @@ func retryInTransaction(retryCount int, db *sql.DB, f func(tx *sql.Tx) error) er
 }
 
 func isolateTransaction(tx *sql.Tx) error {
-	_, err := tx.Exec("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;")
+	_, err := tx.Exec("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec("LOCK TABLE " + constants.TsvTable + ", " + constants.ManifestTable + ";")
+	_, err = tx.Exec("LOCK TABLE tsv, manifest, force_load")
 	return err
 }
 
@@ -629,7 +653,7 @@ func rollbackAndError(tx *sql.Tx, err error) error {
 }
 
 func (b *postgresBackend) TSVVersionExists(table string, version int) (bool, error) {
-	row := b.db.QueryRow("SELECT exists(SELECT 1 FROM "+constants.TsvTable+" WHERE tablename = $1 AND tableversion = $2);",
+	row := b.db.QueryRow("SELECT exists(SELECT 1 FROM tsv WHERE tablename = $1 AND tableversion = $2)",
 		table,
 		version)
 	var exists bool
@@ -640,10 +664,28 @@ func (b *postgresBackend) TSVVersionExists(table string, version int) (bool, err
 	return exists, nil
 }
 
-func (b *postgresBackend) PrioritizeTSVVersion(table string, version int) error {
-	_, err := b.db.Exec(`UPDATE `+constants.TsvTable+` SET ts=to_timestamp(0) WHERE manifest_uuid IS NULL AND tablename = $1 AND tableversion = $2;`,
-		table,
-		version)
+func (b *postgresBackend) ForceLoad(table string, requester string) error {
+	err := retryInTransaction(1, b.db, func(tx *sql.Tx) error {
+		row := tx.QueryRow(
+			"SELECT EXISTS(SELECT 1 FROM force_load WHERE tablename = $1 AND started IS NULL)",
+			table)
+		var exists bool
+		err := row.Scan(&exists)
+		if err != nil {
+			return fmt.Errorf("Got error checking for existing force load: %v", err)
+		}
+		if exists {
+			return nil
+		}
+		_, err = tx.Exec(
+			"INSERT INTO force_load (tablename, requester, ts) VALUES ($1, $2, NOW())",
+			table, requester,
+		)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("forcing load: %v", err)
+	}
 	return err
 }
 
@@ -684,8 +726,8 @@ func (b *postgresBackend) StatsForPendingLoads() ([]*PendingLoadStats, error) {
 				tableversion,
 				retry_count IS NOT NULL AND retry_count >= $1 AS is_stale,
 				ts
-			FROM `+constants.TsvTable+`
-			LEFT JOIN `+constants.ManifestTable+`
+			FROM tsv
+			LEFT JOIN manifest
 				ON manifest_uuid=uuid
 		) tbl
 		GROUP BY 1, 2, 3

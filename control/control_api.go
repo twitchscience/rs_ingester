@@ -19,7 +19,8 @@ func NewControlRouter(cHandler *Handler) http.Handler {
 	control.Use(lib.SimpleLogger)
 	control.Use(context.ClearHandler)
 
-	control.Post("/control/ingest", cHandler.ForceIngest)
+	control.Post("/control/ingest", cHandler.ForceLoad)
+	control.Post("/control/force_load", cHandler.ForceLoad)
 	control.Get("/control/table_exists/:id", cHandler.TableExists)
 	control.Post("/control/increment_version/:id", cHandler.IncrementVersion)
 

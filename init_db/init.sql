@@ -17,3 +17,12 @@ CREATE TABLE IF NOT EXISTS tsv (
     ts              TIMESTAMP,                      -- the time the SQS message was recieved
     manifest_uuid   UUID REFERENCES manifest(uuid)  -- if present, this TSV is in a manifest
 );
+
+-- Requested/executed force loads
+CREATE TABLE IF NOT EXISTS force_load (
+    id              BIGSERIAL PRIMARY KEY,          -- a unique ID for this force load
+    tablename       VARCHAR,                        -- the table name we're loading into
+    ts              TIMESTAMP,                      -- the time the force load was requested
+    requester       VARCHAR,                        -- username who requested the force load
+    started         TIMESTAMP                       -- time when the force load was started (null if unstarted)
+);

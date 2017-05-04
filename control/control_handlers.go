@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/twitchscience/aws_utils/logger"
 	"github.com/twitchscience/rs_ingester/monitoring"
 	"github.com/zenazn/goji/web"
 )
@@ -38,31 +39,33 @@ func respondWithJSONError(w http.ResponseWriter, text string, responseCode int) 
 	}
 }
 
-// ForceIngest forces ingest of a particular table. Takes a JSON POST containing the
-// table field, representing the name of the table to be ingested.
-func (ch *Handler) ForceIngest(c web.C, w http.ResponseWriter, r *http.Request) {
+// ForceLoad forces ingest of a particular table. Takes a JSON POST containing the
+// Table and Requester fields, representing the what to force load and who wants it.
+func (ch *Handler) ForceLoad(c web.C, w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	var tableArg struct {
-		Table string
+		Table     string
+		Requester string
 	}
 	err := decoder.Decode(&tableArg)
 	if err != nil {
 		respondWithJSONError(w, "Problem decoding JSON POST data.", http.StatusBadRequest)
 		return
 	}
-	table := tableArg.Table
 
-	if len(table) <= 0 {
+	if len(tableArg.Table) <= 0 {
 		respondWithJSONError(w, "Table name empty.", http.StatusBadRequest)
 		return
 	}
 
-	err = ch.cb.ForceIngest(table)
+	err = ch.cb.ForceLoad(tableArg.Table, tableArg.Requester)
 	if err != nil {
+		logger.WithError(err).WithField("table", tableArg.Table).
+			WithField("requester", tableArg.Requester).Error("Error forcing load")
 		respondWithJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	ch.stats.SafeInc("force_ingest."+table, 1, 1.0)
+	ch.stats.SafeInc("force_load."+tableArg.Table, 1, 1.0)
 	w.WriteHeader(http.StatusNoContent)
 }
 
