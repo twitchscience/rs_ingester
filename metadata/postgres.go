@@ -447,10 +447,15 @@ func (b *postgresBackend) findTableVersionToLoad(tx *sql.Tx) (*loadableTable, er
 			(SELECT tsv.tablename,
 				tableversion,
 				min(tsv.ts) AS oldest,
-				force_load.id AS force_load_id,
+				unstarted_force_load.id AS force_load_id,
 				count(*) AS cnt
-			FROM tsv LEFT JOIN force_load ON tsv.tablename=force_load.tablename
-			AND manifest_uuid IS NULL AND force_load.started IS NULL
+			FROM tsv LEFT JOIN (
+				SELECT id, tablename
+				FROM force_load
+				WHERE force_load.started IS NULL
+			) AS unstarted_force_load
+			ON tsv.tablename=unstarted_force_load.tablename
+			WHERE manifest_uuid IS NULL
 			GROUP BY tsv.tablename, tableversion, force_load_id) a
 		WHERE (cnt > $1 OR oldest < $2 OR force_load_id IS NOT NULL)
 		ORDER BY force_load_id ASC, oldest ASC
