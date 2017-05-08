@@ -78,6 +78,11 @@ func (r *Reporter) sendPendingLoadStats(pendingLoadStats *metadata.PendingLoadSt
 	label := pendingLoadStats.Type
 	for _, eventStats := range pendingLoadStats.Stats {
 		var ageInMS int64
+		if !eventStats.MinTS.IsZero() && eventStats.MinTS.Unix() > 0 {
+			// To force-load an event, we change the ts to the Unix epoch. For now we'll handle
+			// this case as age 0 to not mess with the metrics
+			ageInMS = int64(time.Since(eventStats.MinTS) / time.Millisecond)
+		}
 		metricPrefix := fmt.Sprintf("tsv_files.%s.%s", eventStats.Event, label)
 		r.stats.SafeGauge(metricPrefix+"_count", eventStats.Count, 1.0)
 		r.stats.SafeGauge(metricPrefix+"_age_in_ms", ageInMS, 1.0)
