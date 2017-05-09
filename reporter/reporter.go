@@ -9,12 +9,23 @@ import (
 	"github.com/twitchscience/rs_ingester/monitoring"
 )
 
+type clock interface {
+	Since(time.Time) time.Duration
+}
+
+type realClock struct{}
+
+func (realClock) Since(t time.Time) time.Duration {
+	return time.Since(t)
+}
+
 // Reporter that queries a backend in intervals and sends stats.
 type Reporter struct {
 	backend    metadata.Reader
 	stats      monitoring.SafeStatter
 	pollPeriod time.Duration
 	closer     chan bool
+	clock      clock
 }
 
 // New returns a Reporter that polls from backend with a given interval.
@@ -24,6 +35,7 @@ func New(backend metadata.Reader, stats monitoring.SafeStatter, pollPeriod time.
 		stats:      stats,
 		pollPeriod: pollPeriod,
 		closer:     make(chan bool),
+		clock:      realClock{},
 	}
 	logger.Go(r.reporterThread)
 	return r
@@ -78,6 +90,9 @@ func (r *Reporter) sendPendingLoadStats(pendingLoadStats *metadata.PendingLoadSt
 	label := pendingLoadStats.Type
 	for _, eventStats := range pendingLoadStats.Stats {
 		var ageInMS int64
+		if !eventStats.MinTS.IsZero() {
+			ageInMS = int64(r.clock.Since(eventStats.MinTS) / time.Millisecond)
+		}
 		metricPrefix := fmt.Sprintf("tsv_files.%s.%s", eventStats.Event, label)
 		r.stats.SafeGauge(metricPrefix+"_count", eventStats.Count, 1.0)
 		r.stats.SafeGauge(metricPrefix+"_age_in_ms", ageInMS, 1.0)
