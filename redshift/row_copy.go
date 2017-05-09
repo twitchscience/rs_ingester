@@ -74,7 +74,7 @@ func CheckLoadStatus(t *sql.Tx, manifestURL string) (scoop_protocol.LoadStatus, 
 
 	if count != 0 {
 		logger.WithField("manifestURL", manifestURL).Info("CheckLoadStatus: Manifest copy is in STV_RECENTS as running")
-		return scoop_protocol.LoadInProgress, nil
+		return scoop_protocol.LoadFailed, nil
 	}
 
 	var aborted, xid int
@@ -103,18 +103,8 @@ func CheckLoadStatus(t *sql.Tx, manifestURL string) (scoop_protocol.LoadStatus, 
 		return scoop_protocol.LoadComplete, nil
 	}
 
-	err = t.QueryRow("SELECT count(*) FROM STL_UNDONE WHERE xact_id_undone = $1", xid).Scan(&count)
-	if err != nil {
-		return "", err
-	}
-
-	if count != 0 {
-		logger.WithField("manifestURL", manifestURL).Info("CheckLoadStatus: Manifest copy was rolled back")
-		return scoop_protocol.LoadFailed, nil
-	}
-
-	logger.WithField("manifestURL", manifestURL).Info("CheckLoadStatus: Manifest copy was found, has a transaction, and neither rolled back nor committed, assume still running")
-	return scoop_protocol.LoadInProgress, nil
+	logger.WithField("manifestURL", manifestURL).Info("CheckLoadStatus: Manifest copy was found, but was not commited")
+	return scoop_protocol.LoadFailed, nil
 }
 
 //CopyCredentials refreshes the redshift aws auth token aggressively
