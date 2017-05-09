@@ -138,6 +138,16 @@ func (b *postgresBackend) checkOrphanedLoads() error {
 	}
 
 	rows, err := tx.Query(`SELECT uuid FROM manifest WHERE retry_ts IS NULL`)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		err = rows.Close()
+		if err != nil {
+			logger.WithError(err).Error("Error closing rows for orphan load check")
+		}
+	}()
 
 	orphanUUIDs := []string{}
 	for rows.Next() {
