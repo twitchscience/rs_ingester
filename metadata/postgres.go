@@ -409,7 +409,7 @@ func (b *postgresBackend) fetchFailedLoad() (*LoadManifest, error) {
 func failedLoadMetadata(tx *sql.Tx) (loadUUID string, lastError sql.NullString, err error) {
 	now := time.Now().In(time.UTC)
 	rows, err := tx.Query(`UPDATE manifest
-                               SET retry_count = retry_count + 1
+                               SET retry_ts = null, retry_count = retry_count + 1
                                WHERE uuid IN (
                                  SELECT uuid
                                  FROM manifest
