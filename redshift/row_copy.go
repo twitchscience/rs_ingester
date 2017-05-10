@@ -100,7 +100,7 @@ func CheckLoadStatus(t *sql.Tx, manifestURL string) (scoop_protocol.LoadStatus, 
 
 	if count != 0 {
 		logger.WithField("manifestURL", manifestURL).Info("CheckLoadStatus: Manifest copy was committed")
-		return scoop_protocol.LoadComplete, nil
+		return scoop_protocol.LoadFailed, nil
 	}
 
 	logger.WithField("manifestURL", manifestURL).Info("CheckLoadStatus: Manifest copy was found, but was not commited")
