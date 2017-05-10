@@ -114,14 +114,14 @@ func NewPostgresLoader(cfg *PGConfig, lChecker loadChecker, versions versions.Ge
 	if err != nil {
 		return nil, err
 	}
-	logger.Info("Before orphan load check")
+
 	err = b.checkOrphanedLoads()
 	if err != nil {
 		return nil, fmt.Errorf("Failed to check orphaned loads: %s", err)
 	}
 
 	logger.Go(b.loadReadyWorker)
-	logger.Info("Done here!")
+
 	return b, nil
 }
 
@@ -222,7 +222,6 @@ func (b *postgresBackend) checkOrphanedLoads() error {
 }
 
 func (b *postgresBackend) InsertLoad(load *Load) error {
-	fmt.Print("\n\n", "got insert ", "\n\n")
 	_, err := b.db.Exec(
 		"INSERT INTO tsv (tablename, keyname, tableversion, ts) VALUES ($1, $2, $3, $4)",
 		load.TableName,
