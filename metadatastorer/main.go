@@ -74,7 +74,7 @@ func main() {
 	if err != nil {
 		logger.WithError(err).Fatal("Error initializing PostgresStorer")
 	}
-
+	fmt.Println("after creating backend")
 	session, err := session.NewSession()
 	if err != nil {
 		logger.WithError(err).Fatal("Failed to setup aws session")
@@ -114,6 +114,7 @@ func main() {
 }
 
 func startWorker(sqs sqsiface.SQSAPI, queue string, stats monitoring.SafeStatter, b metadata.Storer) *listener.SQSListener {
+	fmt.Println("starting worker")
 	ret := listener.BuildSQSListener(
 		&rdsPipeHandler{
 			MetadataStorer: b,
@@ -127,6 +128,7 @@ func startWorker(sqs sqsiface.SQSAPI, queue string, stats monitoring.SafeStatter
 }
 
 func (i *rdsPipeHandler) Handle(msg *sqs.Message) error {
+	fmt.Println("handling")
 	logger.WithField("body", msg.Body).WithField("messageID", msg.MessageId).Info("Received message")
 
 	req, err := i.Signer.GetRowCopyRequest(strings.NewReader(aws.StringValue(msg.Body)))
