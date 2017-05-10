@@ -141,7 +141,11 @@ func (b *postgresBackend) checkOrphanedLoads() error {
 	if err != nil {
 		return err
 	}
-
+	err = tx.Commit()
+	if err != nil {
+		logger.WithError(err).Error("Error on commit when locking manifest load")
+		return err
+	}
 	defer func() {
 		err = rows.Close()
 		if err != nil {
@@ -203,6 +207,12 @@ func (b *postgresBackend) checkOrphanedLoads() error {
 			err = tx.Commit()
 			if err != nil {
 				logger.WithError(err).Error("Error on commit when marking failed orphan load for retrial")
+				return err
+			}
+		default:
+			err = tx.Commit()
+			if err != nil {
+				logger.WithError(err).Error("Got unexpected load status from orphan load check")
 				return err
 			}
 		}
