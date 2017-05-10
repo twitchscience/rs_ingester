@@ -75,7 +75,7 @@ func (i *loadWorker) Work(stats monitoring.SafeStatter) {
 			WithField("table", load.TableName)
 		logfields.Info("Loading manifest into table")
 		err := i.Loader.LoadManifest(load)
-		if err != nil {
+		if err == nil {
 			if err.Retryable() {
 				i.MetadataBackend.LoadError(load.UUID, err.Error())
 			}
