@@ -77,7 +77,7 @@ func (i *loadWorker) Work(stats monitoring.SafeStatter) {
 		err := i.Loader.LoadManifest(load)
 		if err == nil {
 			//if err.Retryable() {
-			i.MetadataBackend.LoadError(load.UUID, err.Error())
+			i.MetadataBackend.LoadError(load.UUID, "forced error") //err.Error())
 			//}
 			//logfields.WithError(err).WithField("retryable", err.Retryable()).
 			//	Error("Error loading files into table.")
