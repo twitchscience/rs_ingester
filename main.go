@@ -76,13 +76,13 @@ func (i *loadWorker) Work(stats monitoring.SafeStatter) {
 		logfields.Info("Loading manifest into table")
 		err := i.Loader.LoadManifest(load)
 		if err == nil {
-			if err.Retryable() {
-				i.MetadataBackend.LoadError(load.UUID, err.Error())
-			}
-			logfields.WithError(err).WithField("retryable", err.Retryable()).
-				Error("Error loading files into table.")
+			//if err.Retryable() {
+			i.MetadataBackend.LoadError(load.UUID, err.Error())
+			//}
+			//logfields.WithError(err).WithField("retryable", err.Retryable()).
+			//	Error("Error loading files into table.")
 
-			stats.SafeInc("manifest_load.failures", 1, 1.0)
+			//stats.SafeInc("manifest_load.failures", 1, 1.0)
 			continue
 		}
 		logfields.Info("Loaded manifest into table")

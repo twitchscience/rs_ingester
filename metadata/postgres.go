@@ -126,26 +126,11 @@ func NewPostgresLoader(cfg *PGConfig, lChecker loadChecker, versions versions.Ge
 }
 
 func (b *postgresBackend) checkOrphanedLoads() error {
-	tx, err := b.db.Begin()
+	rows, err := b.db.Query(`SELECT uuid FROM manifest WHERE retry_ts IS NULL`)
 	if err != nil {
-		logger.WithError(err).Error("Error beginning transaction")
 		return err
 	}
 
-	if err = isolateTransaction(tx); err != nil {
-		logger.WithError(err).Error("Error setting transaction serializable")
-		return rollbackAndError(tx, err)
-	}
-
-	rows, err := tx.Query(`SELECT uuid FROM manifest WHERE retry_ts IS NULL`)
-	if err != nil {
-		return err
-	}
-	err = tx.Commit()
-	if err != nil {
-		logger.WithError(err).Error("Error on commit when locking manifest load")
-		return err
-	}
 	defer func() {
 		err = rows.Close()
 		if err != nil {
@@ -170,7 +155,7 @@ func (b *postgresBackend) checkOrphanedLoads() error {
 			return err
 		}
 
-		tx, err = b.db.Begin()
+		tx, err := b.db.Begin()
 		if err != nil {
 			logger.WithError(err).Error("Error beginning transaction")
 			return err
