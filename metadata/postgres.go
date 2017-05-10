@@ -114,14 +114,14 @@ func NewPostgresLoader(cfg *PGConfig, lChecker loadChecker, versions versions.Ge
 	if err != nil {
 		return nil, err
 	}
-
+	logger.Info("Before orphan load check")
 	err = b.checkOrphanedLoads()
 	if err != nil {
 		return nil, fmt.Errorf("Failed to check orphaned loads: %s", err)
 	}
 
 	logger.Go(b.loadReadyWorker)
-
+	logger.Info("Done here!")
 	return b, nil
 }
 
