@@ -212,7 +212,7 @@ func (b *postgresBackend) checkOrphanedLoads() error {
 }
 
 func (b *postgresBackend) InsertLoad(load *Load) error {
-	fmt.Println("\n\n", "got insert ", "\n\n")
+	fmt.Print("\n\n", "got insert ", "\n\n")
 	_, err := b.db.Exec(
 		"INSERT INTO tsv (tablename, keyname, tableversion, ts) VALUES ($1, $2, $3, $4)",
 		load.TableName,
