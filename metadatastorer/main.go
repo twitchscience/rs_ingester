@@ -74,7 +74,6 @@ func main() {
 	if err != nil {
 		logger.WithError(err).Fatal("Error initializing PostgresStorer")
 	}
-
 	session, err := session.NewSession()
 	if err != nil {
 		logger.WithError(err).Fatal("Failed to setup aws session")

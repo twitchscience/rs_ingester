@@ -46,16 +46,14 @@ type postgresBackend struct {
 }
 
 var (
-	errorNoTsvs           = errors.New("No tsvs were found with that manifest id")
-	errorNoLoads          = errors.New("Found no loads to do")
-	tableToLoadSearchSize = 50
-	maxLoadRetryCount     int
-	dbRetryCount          int
-	noWorkDelay           time.Duration
-	errorRetryDelay       time.Duration
-	staleRetryDelay       time.Duration
-	staleRecoverDelay     time.Duration
-	staleCheckInterval    time.Duration
+	errorNoTsvs             = errors.New("No tsvs were found with that manifest id")
+	errorNoLoads            = errors.New("Found no loads to do")
+	tableToLoadSearchSize   = 50
+	maxLoadRetryCount       int
+	dbRetryCount            int
+	noWorkDelay             time.Duration
+	errorRetryDelay         time.Duration
+	failedLoadCheckInterval time.Duration
 )
 
 func init() {
@@ -63,9 +61,7 @@ func init() {
 	flag.IntVar(&maxLoadRetryCount, "max_load_retry", 5, "Number of times to retry a load manifest before giving up")
 	flag.IntVar(&dbRetryCount, "max_db_retry", 10, "Number of times to retry a transaction")
 	flag.DurationVar(&errorRetryDelay, "error_retry_delay", time.Minute*15, "Time to wait to retry a load that errors")
-	flag.DurationVar(&staleRetryDelay, "stale_retry_delay", time.Hour*3, "Time to wait before checking up on a load")
-	flag.DurationVar(&staleRecoverDelay, "stale_recover_delay", time.Minute*30, "Time to check out a stale load (lock duration)")
-	flag.DurationVar(&staleCheckInterval, "stale_check_interval", time.Minute, "How often to check for stale loads")
+	flag.DurationVar(&failedLoadCheckInterval, "failed_load_check_interval", time.Minute, "How often to check for failed loads")
 }
 
 // NewPostgresReader configures a new postgres backend for reading only
@@ -119,9 +115,87 @@ func NewPostgresLoader(cfg *PGConfig, lChecker loadChecker, versions versions.Ge
 		return nil, err
 	}
 
+	err = b.checkOrphanedLoads()
+	if err != nil {
+		return nil, fmt.Errorf("Failed to check orphaned loads: %s", err)
+	}
+
 	logger.Go(b.loadReadyWorker)
 
 	return b, nil
+}
+
+func (b *postgresBackend) checkOrphanedLoads() error {
+	rows, err := b.db.Query(`SELECT uuid FROM manifest WHERE retry_ts IS NULL`)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		err = rows.Close()
+		if err != nil {
+			logger.WithError(err).Error("Error closing rows for orphan load check")
+		}
+	}()
+
+	orphanUUIDs := []string{}
+	for rows.Next() {
+		var uuid string
+		err = rows.Scan(&uuid)
+		if err != nil {
+			return fmt.Errorf("Got error fetching orphaned loads: %v", err)
+		}
+		orphanUUIDs = append(orphanUUIDs, uuid)
+	}
+
+	for _, orphanUUID := range orphanUUIDs {
+		loadStatus, err := b.loadChecker.CheckLoad(orphanUUID)
+		if err != nil {
+			logger.WithError(err).Error("Got error checking orphan load status")
+			return err
+		}
+
+		tx, err := b.db.Begin()
+		if err != nil {
+			logger.WithError(err).Error("Error beginning transaction")
+			return err
+		}
+
+		if err = isolateTransaction(tx); err != nil {
+			logger.WithError(err).Error("Error setting transaction serializable")
+			return rollbackAndError(tx, err)
+		}
+
+		switch loadStatus {
+		case scoop_protocol.LoadComplete:
+			// If completed succesfully, delete tsv rows
+			logger.WithField("orphanUUID", orphanUUID).Info("Orphaned load is complete, marking done")
+			err = b.loadDoneHelper(tx, orphanUUID) // loadDoneHelper rolls back on error
+			if err != nil {
+				return err
+			}
+
+		case scoop_protocol.LoadNotFound, scoop_protocol.LoadFailed:
+			// If load failed, delete tsv rows
+			logger.WithField("orphanUUID", orphanUUID).Info("Orphaned load failed, marking for retry")
+			err = b.loadErrorHelper(tx, orphanUUID, "Orphan load on startup") // loadErrorHelper rolls back on error
+			if err != nil {
+				return err
+			}
+
+		default:
+			logger.WithField("loadStatus", loadStatus).Error("Got unexpected load status from orphan load check")
+			return fmt.Errorf("Got unexpected load status from orphan load check: %s", loadStatus)
+		}
+
+		err = tx.Commit()
+		if err != nil {
+			logger.WithField("orphanUUID", orphanUUID).WithError(err).Error("Error on commit when after dealing with orphan load")
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (b *postgresBackend) InsertLoad(load *Load) error {
@@ -225,24 +299,24 @@ func (b *postgresBackend) loadReadyWorker() {
 	logger.Info("Starting loadReadyWorker.")
 	defer logger.Info("loadReadyWorker stopped.")
 
-	var lastStaleCheck time.Time
+	var lastFailedLoadCheck time.Time
 	for {
-		var stale *LoadManifest
+		var failed *LoadManifest
 
-		if time.Now().In(time.UTC).Sub(lastStaleCheck) > staleCheckInterval {
+		if time.Now().In(time.UTC).Sub(lastFailedLoadCheck) > failedLoadCheckInterval {
 			err := retrying(dbRetryCount, func() error {
 				var err error
-				stale, err = b.fetchStaleLoad()
+				failed, err = b.fetchFailedLoad()
 				return err
 			})
 			if err == nil {
-				lastStaleCheck = time.Now().In(time.UTC)
+				lastFailedLoadCheck = time.Now().In(time.UTC)
 			} else {
-				logger.WithError(err).Error("Error checking stale loads")
+				logger.WithError(err).Error("Error checking failed loads")
 			}
 
-			if stale != nil {
-				b.loadReady <- stale
+			if failed != nil {
+				b.loadReady <- failed
 			}
 		}
 
@@ -273,133 +347,79 @@ func (b *postgresBackend) loadReadyWorker() {
 	}
 }
 
-// Check for dead loads and clean them up if possible
-func (b *postgresBackend) fetchStaleLoad() (*LoadManifest, error) {
-	for {
-		tx, err := b.db.Begin()
-		if err != nil {
-			logger.WithError(err).Error("Error beginning transaction")
-			return nil, err
-		}
-
-		if err = isolateTransaction(tx); err != nil {
-			logger.WithError(err).Error("Error setting transaction serializable")
-			return nil, rollbackAndError(tx, err)
-		}
-
-		loadUUID, lastError, err := staleLoadMetadata(tx)
-		if err != nil {
-			return nil, rollbackAndError(tx, err)
-		}
-		err = tx.Commit()
-		if err != nil {
-			logger.WithError(err).Error("Error on commit when locking manifest load")
-			return nil, err
-		}
-		if loadUUID == "" {
-			return nil, nil
-		}
-
-		logger.WithField("loadUUID", loadUUID).Info("Checking up on load")
-
-		loadStatus, err := b.loadChecker.CheckLoad(loadUUID)
-		if err != nil {
-			logger.WithError(err).Error("Got error checking load status")
-			return nil, err
-		}
-
-		tx, err = b.db.Begin()
-		if err != nil {
-			logger.WithError(err).Error("Error beginning transaction")
-			return nil, err
-		}
-
-		if err = isolateTransaction(tx); err != nil {
-			logger.WithError(err).Error("Error setting transaction serializable")
-			return nil, rollbackAndError(tx, err)
-		}
-
-		switch loadStatus {
-		case scoop_protocol.LoadComplete:
-			// If completed succesfully, delete tsv rows
-			logger.WithField("loadUUID", loadUUID).Info("Load is complete, marking done")
-			err = b.loadDoneHelper(tx, loadUUID) // loadDoneHelper rolls back on error
-			if err != nil {
-				return nil, err
-			}
-
-			err = tx.Commit()
-			if err != nil {
-				logger.WithError(err).Error("Error on commit when cleaning up manifests+tsvs at finished load")
-				return nil, err
-			}
-
-		case scoop_protocol.LoadNotFound, scoop_protocol.LoadFailed:
-			if lastError.Valid {
-				logger.WithError(err).WithField("loadUUID", loadUUID).
-					WithField("loadStatus", loadStatus).
-					WithField("error", lastError.String).
-					Infof("Load is in status %s and has a known error, retrying manifest", loadStatus)
-				var tsv *LoadManifest
-				tsv, err = getLoadManifest(tx, loadUUID)
-				if err != nil {
-					return nil, rollbackAndError(tx, err)
-				}
-				return tsv, tx.Commit()
-			}
-
-			logger.WithField("loadUUID", loadUUID).WithField("loadStatus", loadStatus).
-				Infof("Load is in status %s, deleting manifest so it retries", loadStatus)
-
-			_, err = tx.Exec(`UPDATE tsv SET manifest_uuid = NULL
-                              WHERE manifest_uuid = $1`, loadUUID)
-			if err != nil {
-				return nil, rollbackAndError(tx, err)
-			}
-			_, err = tx.Exec("DELETE FROM manifest WHERE uuid = $1", loadUUID)
-			if err != nil {
-				return nil, rollbackAndError(tx, err)
-			}
-
-			err = tx.Commit()
-			if err != nil {
-				return nil, err
-			}
-
-		case scoop_protocol.LoadInProgress:
-			logger.WithField("loadUUID", loadUUID).Info("Load is still in progress, waiting")
-			err = tx.Rollback()
-			if err != nil {
-				return nil, err
-			}
-		}
+// Check for failed loads, and if retriable, returns them to be added to the load queue
+func (b *postgresBackend) fetchFailedLoad() (*LoadManifest, error) {
+	tx, err := b.db.Begin()
+	if err != nil {
+		logger.WithError(err).Error("Error beginning transaction")
+		return nil, err
 	}
+
+	if err = isolateTransaction(tx); err != nil {
+		logger.WithError(err).Error("Error setting transaction serializable")
+		return nil, rollbackAndError(tx, err)
+	}
+
+	loadUUID, lastError, err := failedLoadMetadata(tx)
+	if err != nil {
+		return nil, rollbackAndError(tx, err)
+	}
+	err = tx.Commit()
+	if err != nil {
+		logger.WithError(err).Error("Error on commit when locking manifest load")
+		return nil, err
+	}
+	if loadUUID == "" {
+		return nil, nil
+	}
+
+	logger.WithField("loadUUID", loadUUID).
+		WithField("error", lastError.String).
+		Infof("Load failed and has a known error, retrying manifest")
+
+	tx, err = b.db.Begin()
+	if err != nil {
+		logger.WithError(err).Error("Error beginning transaction")
+		return nil, err
+	}
+
+	if err = isolateTransaction(tx); err != nil {
+		logger.WithError(err).Error("Error setting transaction serializable")
+		return nil, rollbackAndError(tx, err)
+	}
+
+	var tsv *LoadManifest
+	tsv, err = getLoadManifest(tx, loadUUID)
+	if err != nil {
+		return nil, rollbackAndError(tx, err)
+	}
+
+	return tsv, tx.Commit()
 }
 
-func staleLoadMetadata(tx *sql.Tx) (loadUUID string, lastError sql.NullString, err error) {
+func failedLoadMetadata(tx *sql.Tx) (loadUUID string, lastError sql.NullString, err error) {
 	now := time.Now().In(time.UTC)
-	retryTs := now.Add(staleRecoverDelay)
 	rows, err := tx.Query(`UPDATE manifest
-                               SET retry_ts = $1,
-                                   retry_count = retry_count + 1
+                               SET retry_ts = null,
+							       retry_count = retry_count + 1
                                WHERE uuid IN (
                                  SELECT uuid
                                  FROM manifest
-                                 WHERE retry_ts < $2 AND retry_count < $3
+                                 WHERE retry_ts IS NOT NULL AND retry_ts < $1 AND retry_count < $2
                                  ORDER BY retry_ts ASC
                                  LIMIT 1
                                )
                                RETURNING uuid, last_error
-                              `, retryTs, now, maxLoadRetryCount)
+                              `, now, maxLoadRetryCount)
 
 	if err != nil {
-		logger.WithError(err).Error("Error querying for stale locks")
+		logger.WithError(err).Error("Error querying for failed loads")
 		return
 	}
 	defer func() {
 		err = rows.Close()
 		if err != nil {
-			logger.WithError(err).Error("Error closing rows for stale load metadata")
+			logger.WithError(err).Error("Error closing rows for failed load metadata")
 		}
 	}()
 
@@ -512,11 +532,10 @@ func (b *postgresBackend) fetchLoad() (*LoadManifest, error) {
 	}
 
 	manifestUUID := uuid.NewRandom().String()
-	retryTs := time.Now().In(time.UTC).Add(staleRetryDelay)
 
-	_, err = tx.Exec(`INSERT INTO manifest (uuid, retry_ts)
-                      VALUES ($1, $2)
-                     `, manifestUUID, retryTs)
+	_, err = tx.Exec(`INSERT INTO manifest (uuid)
+                      VALUES ($1)
+                     `, manifestUUID)
 	if err != nil {
 		logger.WithError(err).Error("Error inserting into manifest")
 		return nil, rollbackAndError(tx, err)
@@ -719,14 +738,14 @@ func updateStats(loadStats *PendingLoadStats, event string, cnt int64, minTS tim
 // StatsForPendingLoads returns aggregates stats for each type of pending load classification.
 func (b *postgresBackend) StatsForPendingLoads() ([]*PendingLoadStats, error) {
 	rows, err := b.db.Query(`
-		SELECT 
+		SELECT
 			tablename,
 			tableversion,
 			is_stale,
 			min(ts),
 			count(*)
 		FROM (
-			SELECT 
+			SELECT
 				tablename,
 				tableversion,
 				retry_count IS NOT NULL AND retry_count >= $1 AS is_stale,
