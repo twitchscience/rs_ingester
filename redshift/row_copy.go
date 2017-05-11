@@ -73,6 +73,8 @@ func CheckLoadStatus(t *sql.Tx, manifestURL string) (scoop_protocol.LoadStatus, 
 	}
 
 	if count != 0 {
+		// We do this check on ingester start-up, which means that if a query is still running, the previous ingester
+		// is no longer alive to issue the COMMIT, causing this load to never complete. Thus we say this is a failed load.
 		logger.WithField("manifestURL", manifestURL).Info("CheckLoadStatus: Manifest copy is in STV_RECENTS as running")
 		return scoop_protocol.LoadFailed, nil
 	}

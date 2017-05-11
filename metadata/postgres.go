@@ -175,31 +175,23 @@ func (b *postgresBackend) checkOrphanedLoads() error {
 				return err
 			}
 
-			err = tx.Commit()
-			if err != nil {
-				logger.WithError(err).Error("Error on commit when cleaning up manifests+tsvs at finished orphan load")
-				return err
-			}
-
 		case scoop_protocol.LoadNotFound, scoop_protocol.LoadFailed:
-			// If completed succesfully, delete tsv rows
+			// If load failed, delete tsv rows
 			logger.WithField("orphanUUID", orphanUUID).Info("Orphaned load failed, marking for retry")
 			err = b.loadErrorHelper(tx, orphanUUID, "Orphan load on startup") // loadErrorHelper rolls back on error
 			if err != nil {
 				return err
 			}
 
-			err = tx.Commit()
-			if err != nil {
-				logger.WithError(err).Error("Error on commit when marking failed orphan load for retrial")
-				return err
-			}
 		default:
-			err = tx.Commit()
-			if err != nil {
-				logger.WithError(err).Error("Got unexpected load status from orphan load check")
-				return err
-			}
+			logger.WithField("loadStatus", loadStatus).Error("Got unexpected load status from orphan load check")
+			return fmt.Errorf("Got unexpected load status from orphan load check: %s", loadStatus)
+		}
+
+		err = tx.Commit()
+		if err != nil {
+			logger.WithField("orphanUUID", orphanUUID).WithError(err).Error("Error on commit when after dealing with orphan load")
+			return err
 		}
 	}
 
@@ -355,7 +347,7 @@ func (b *postgresBackend) loadReadyWorker() {
 	}
 }
 
-// Check for failed loads and retry them up if applicable
+// Check for failed loads, and if retriable, returns them to be added to the load queue
 func (b *postgresBackend) fetchFailedLoad() (*LoadManifest, error) {
 	tx, err := b.db.Begin()
 	if err != nil {
@@ -381,7 +373,9 @@ func (b *postgresBackend) fetchFailedLoad() (*LoadManifest, error) {
 		return nil, nil
 	}
 
-	logger.WithField("loadUUID", loadUUID).Info("Fetching failed load")
+	logger.WithField("loadUUID", loadUUID).
+		WithField("error", lastError.String).
+		Infof("Load failed and has a known error, retrying manifest")
 
 	tx, err = b.db.Begin()
 	if err != nil {
@@ -394,9 +388,6 @@ func (b *postgresBackend) fetchFailedLoad() (*LoadManifest, error) {
 		return nil, rollbackAndError(tx, err)
 	}
 
-	logger.WithError(err).WithField("loadUUID", loadUUID).
-		WithField("error", lastError.String).
-		Infof("Load failed and has a known error, retrying manifest")
 	var tsv *LoadManifest
 	tsv, err = getLoadManifest(tx, loadUUID)
 	if err != nil {
