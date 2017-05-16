@@ -224,7 +224,7 @@ func (m *Migrator) findAndApplyMigrations() {
 		}
 
 		// We allow table creation no matter what.
-		// Migrate table only if A) currently offpeak hours OR B) force load on the table has been requested
+		// Migrate table only if A) currently offpeak hours OR B) force load on the table has been requested.
 		forceLoadRequested, err := m.metaBackend.IsForceLoadRequested(table)
 		if err != nil {
 			logger.WithError(err).WithField("table", table).WithField("version", newVersion).Error("Error checking for pending force load")
