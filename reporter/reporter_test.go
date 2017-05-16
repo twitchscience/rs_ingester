@@ -33,6 +33,9 @@ func (m *MockReader) ForceLoad(table string, requester string) error {
 func (m *MockReader) StatsForPendingLoads() ([]*metadata.PendingLoadStats, error) {
 	return m.pendingLoadsStats, nil
 }
+func (m *MockReader) IsForceLoadRequested(table string) (bool, error) {
+	return false, nil
+}
 
 type mockClock struct{}
 
