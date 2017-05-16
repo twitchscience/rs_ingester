@@ -222,12 +222,18 @@ func (m *Migrator) findAndApplyMigrations() {
 		} else {
 			newVersion = currentVersion + 1
 		}
-		// if not offpeak, don't migrate table, but still allow table creation
-		if newVersion > 0 && !m.isOffPeakHours() {
+
+		// We allow table creation no matter what.
+		// Migrate table only if A) currently offpeak hours OR B) force load on the table has been requested
+		forceLoadRequested, err := m.metaBackend.IsForceLoadRequested(table)
+		if err != nil {
+			logger.WithError(err).WithField("table", table).WithField("version", newVersion).Error("Error checking for pending force load")
+		}
+		if newVersion > 0 && !(m.isOffPeakHours() || forceLoadRequested) {
 			logger.WithField("table", table).WithField("version", newVersion).Infof("Not migrating; waiting until offpeak at %dh UTC", m.offpeakStartHour)
 			continue
 		}
-		err := m.migrate(table, newVersion)
+		err = m.migrate(table, newVersion)
 		if err != nil {
 			logger.WithError(err).WithField("table", table).WithField("version", newVersion).Error("Error migrating table")
 		}

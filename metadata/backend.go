@@ -23,6 +23,7 @@ type Reader interface {
 	TSVVersionExists(table string, version int) (bool, error)
 	ForceLoad(table string, requester string) error
 	StatsForPendingLoads() ([]*PendingLoadStats, error)
+	IsForceLoadRequested(table string) (bool, error)
 }
 
 // Backend specifies the interface for load state

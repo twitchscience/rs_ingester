@@ -713,6 +713,17 @@ func (b *postgresBackend) ForceLoad(table string, requester string) error {
 	return err
 }
 
+func (b *postgresBackend) IsForceLoadRequested(table string) (bool, error) {
+	row := b.db.QueryRow("SELECT exists(SELECT 1 FROM force_load WHERE tablename = $1 AND started IS NULL)",
+		table)
+	var requested bool
+	err := row.Scan(&requested)
+	if err != nil {
+		return false, fmt.Errorf("Checking if a table force load has been requested failed: %v", err)
+	}
+	return requested, nil
+}
+
 func findOrCreateStat(loadStats *PendingLoadStats, event string) *EventStats {
 	for _, s := range loadStats.Stats {
 		if s.Event == event {
