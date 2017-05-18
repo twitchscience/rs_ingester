@@ -198,9 +198,10 @@ func (r *RedshiftBackend) ApplyOperations(table string, ops []scoop_protocol.Ope
 			return err
 		}
 		// set time out for the migration
-		_, err = tx.Exec("set statement_timeout to $1", timeoutMs)
+		query := fmt.Sprintf("SET statement_timeout TO %d", timeoutMs)
+		_, err = tx.Exec(query)
 		if err != nil {
-			return fmt.Errorf("Error setting timeout for migration: %v", err)
+			return fmt.Errorf("Error setting timeout: %v", err)
 		}
 		for _, op := range ops {
 			err = applyOperation(op, table, tx)
@@ -208,7 +209,7 @@ func (r *RedshiftBackend) ApplyOperations(table string, ops []scoop_protocol.Ope
 				return err
 			}
 		}
-		query := fmt.Sprintf("INSERT INTO infra.table_version (name, version, ts) VALUES ($1, $2, GETDATE())")
+		query = fmt.Sprintf("INSERT INTO infra.table_version (name, version, ts) VALUES ($1, $2, GETDATE())")
 		_, err = tx.Exec(query, table, targetVersion)
 		if err != nil {
 			return fmt.Errorf("Error updating table_version in ace: %v", err)
