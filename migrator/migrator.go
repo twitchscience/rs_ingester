@@ -26,19 +26,21 @@ type VersionIncrement struct {
 
 // Migrator manages the migration of Ace as new versioned tsvs come in.
 type Migrator struct {
-	versions             versions.GetterSetter
-	aceBackend           backend.Backend
-	metaBackend          metadata.Reader
-	bpClient             blueprint.Client
-	closer               chan bool
-	oldVersionWaitClose  chan bool
-	versionIncrement     chan VersionIncrement
-	wg                   sync.WaitGroup
-	pollPeriod           time.Duration
-	waitProcessorPeriod  time.Duration
-	migrationStarted     map[tableVersion]time.Time
-	offpeakStartHour     int
-	offpeakDurationHours int
+	versions                  versions.GetterSetter
+	aceBackend                backend.Backend
+	metaBackend               metadata.Reader
+	bpClient                  blueprint.Client
+	closer                    chan bool
+	oldVersionWaitClose       chan bool
+	versionIncrement          chan VersionIncrement
+	wg                        sync.WaitGroup
+	pollPeriod                time.Duration
+	waitProcessorPeriod       time.Duration
+	migrationStarted          map[tableVersion]time.Time
+	offpeakStartHour          int
+	offpeakDurationHours      int
+	onpeakMigrationTimeoutMs  int
+	offpeakMigrationTimeoutMs int
 }
 
 // New returns a new Migrator for migrating schemas
@@ -50,20 +52,24 @@ func New(aceBack backend.Backend,
 	waitProcessorPeriod time.Duration,
 	offpeakStartHour int,
 	offpeakDurationHours int,
-	versionIncrement chan VersionIncrement) *Migrator {
+	versionIncrement chan VersionIncrement,
+	onpeakMigrationTimeoutMs int,
+	offpeakMigrationTimeoutMs int) *Migrator {
 	m := Migrator{
-		versions:             versions,
-		aceBackend:           aceBack,
-		metaBackend:          metaBack,
-		bpClient:             blueprintClient,
-		closer:               make(chan bool),
-		oldVersionWaitClose:  make(chan bool),
-		versionIncrement:     versionIncrement,
-		pollPeriod:           pollPeriod,
-		waitProcessorPeriod:  waitProcessorPeriod,
-		migrationStarted:     make(map[tableVersion]time.Time),
-		offpeakStartHour:     offpeakStartHour,
-		offpeakDurationHours: offpeakDurationHours,
+		versions:                  versions,
+		aceBackend:                aceBack,
+		metaBackend:               metaBack,
+		bpClient:                  blueprintClient,
+		closer:                    make(chan bool),
+		oldVersionWaitClose:       make(chan bool),
+		versionIncrement:          versionIncrement,
+		pollPeriod:                pollPeriod,
+		waitProcessorPeriod:       waitProcessorPeriod,
+		migrationStarted:          make(map[tableVersion]time.Time),
+		offpeakStartHour:          offpeakStartHour,
+		offpeakDurationHours:      offpeakDurationHours,
+		onpeakMigrationTimeoutMs:  onpeakMigrationTimeoutMs,
+		offpeakMigrationTimeoutMs: offpeakMigrationTimeoutMs,
 	}
 
 	m.wg.Add(1)
@@ -105,7 +111,7 @@ func (m *Migrator) isOldVersionCleared(table string, version int) (bool, error) 
 	return false, m.metaBackend.ForceLoad(table, "migrator")
 }
 
-func (m *Migrator) migrate(table string, to int) error {
+func (m *Migrator) migrate(table string, to int, isOffPeak bool) error {
 	ops, err := m.bpClient.GetMigration(table, to)
 	if err != nil {
 		return err
@@ -152,7 +158,11 @@ func (m *Migrator) migrate(table string, to int) error {
 
 		// everything is ready, now actually do the migration
 		logger.WithField("table", table).WithField("version", to).Info("Beginning to migrate")
-		err = m.aceBackend.ApplyOperations(table, ops, to)
+		timeoutMs := m.onpeakMigrationTimeoutMs
+		if isOffPeak {
+			timeoutMs = m.offpeakMigrationTimeoutMs
+		}
+		err = m.aceBackend.ApplyOperations(table, ops, to, timeoutMs)
 		if err != nil {
 			return fmt.Errorf("Error applying operations to %s: %v", table, err)
 		}
@@ -194,7 +204,7 @@ func (m *Migrator) incrementVersion(verInc VersionIncrement) {
 		verInc.Response <- fmt.Errorf(
 			"attempted to increment version of table that exists: %s", verInc.Table)
 	default:
-		err = m.aceBackend.ApplyOperations(verInc.Table, nil, verInc.Version)
+		err = m.aceBackend.ApplyOperations(verInc.Table, nil, verInc.Version, m.offpeakMigrationTimeoutMs)
 		if err == nil {
 			logger.Infof("Incremented table %s to version %d",
 				verInc.Table, verInc.Version)
@@ -222,12 +232,35 @@ func (m *Migrator) findAndApplyMigrations() {
 		} else {
 			newVersion = currentVersion + 1
 		}
-		// if not offpeak, don't migrate table, but still allow table creation
-		if newVersion > 0 && !m.isOffPeakHours() {
-			logger.WithField("table", table).WithField("version", newVersion).Infof("Not migrating; waiting until offpeak at %dh UTC", m.offpeakStartHour)
-			continue
+
+		// We allow table creation no matter what.
+		// Migrate table only if A) currently offpeak hours OR B) force load on the table has been requested.
+		// We cannot on-peak migrate a table if it is locked
+		var forceLoadRequested, tableLocked bool
+		if newVersion > 0 {
+			if !m.isOffPeakHours() {
+				forceLoadRequested, err = m.metaBackend.IsForceLoadRequested(table)
+				if err != nil {
+					logger.WithError(err).WithField("table", table).WithField("version", newVersion).Error("Error checking for pending force load")
+					continue
+				}
+				if !forceLoadRequested {
+					logger.WithField("table", table).WithField("version", newVersion).Infof("Not migrating; waiting until offpeak at %dh UTC", m.offpeakStartHour)
+					continue
+				}
+
+				tableLocked, err = m.aceBackend.TableLocked(table)
+				if err != nil {
+					logger.WithError(err).WithField("table", table).Error("Error checking for table lock")
+					continue
+				}
+				if tableLocked {
+					logger.WithField("table", table).WithField("version", newVersion).Infof("Not migrating; on-peak and table is locked")
+					continue
+				}
+			}
 		}
-		err := m.migrate(table, newVersion)
+		err = m.migrate(table, newVersion, m.isOffPeakHours())
 		if err != nil {
 			logger.WithError(err).WithField("table", table).WithField("version", newVersion).Error("Error migrating table")
 		}
