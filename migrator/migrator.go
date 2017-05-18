@@ -236,7 +236,7 @@ func (m *Migrator) findAndApplyMigrations() {
 		// We allow table creation no matter what.
 		// Migrate table only if A) currently offpeak hours OR B) force load on the table has been requested.
 		// We cannot on-peak migrate a table if it is locked
-		var forceLoadRequested bool
+		var forceLoadRequested, tableLocked bool
 		if newVersion > 0 {
 			if !m.isOffPeakHours() {
 				forceLoadRequested, err = m.metaBackend.IsForceLoadRequested(table)
@@ -249,7 +249,7 @@ func (m *Migrator) findAndApplyMigrations() {
 					continue
 				}
 
-				tableLocked, err := m.aceBackend.TableLocked(table)
+				tableLocked, err = m.aceBackend.TableLocked(table)
 				if err != nil {
 					logger.WithError(err).WithField("table", table).Error("Error checking for table lock")
 					continue
