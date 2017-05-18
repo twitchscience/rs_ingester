@@ -44,21 +44,23 @@ const (
 )
 
 var (
-	poolSize             int
-	statsPrefix          string
-	manifestBucket       string
-	rsURL                string
-	rollbarToken         string
-	rollbarEnvironment   string
-	blueprintHost        string
-	pgConfig             metadata.PGConfig
-	loadAgeSeconds       int
-	workerGroup          sync.WaitGroup
-	waitProcessorPeriod  time.Duration
-	migratorPollPeriod   time.Duration
-	reporterPollPeriod   time.Duration
-	offpeakStartHour     int
-	offpeakDurationHours int
+	poolSize                  int
+	statsPrefix               string
+	manifestBucket            string
+	rsURL                     string
+	rollbarToken              string
+	rollbarEnvironment        string
+	blueprintHost             string
+	pgConfig                  metadata.PGConfig
+	loadAgeSeconds            int
+	workerGroup               sync.WaitGroup
+	waitProcessorPeriod       time.Duration
+	migratorPollPeriod        time.Duration
+	reporterPollPeriod        time.Duration
+	offpeakStartHour          int
+	offpeakDurationHours      int
+	onpeakMigrationTimeoutMs  int
+	offpeakMigrationTimeoutMs int
 )
 
 type loadWorker struct {
@@ -130,6 +132,8 @@ func init() {
 	flag.StringVar(&rollbarEnvironment, "rollbarEnvironment", "", "Rollbar environment")
 	flag.IntVar(&offpeakStartHour, "offpeakStartHour", 3, "Hour that offpeak period starts and migrations can happen, in UTC")
 	flag.IntVar(&offpeakDurationHours, "offpeakDurationHours", 8, "Duration of the offpeak migration period, in hours")
+	flag.IntVar(&onpeakMigrationTimeoutMs, "onpeakMigrationTimeoutMs", 600000, "Timeout of a migration forced on-peak")
+	flag.IntVar(&offpeakMigrationTimeoutMs, "offpeakMigrationTimeoutMs", 10800000, "Timeout of a migration off-peak")
 }
 
 func main() {
@@ -190,7 +194,8 @@ func main() {
 	blueprintClient := blueprint.New(blueprintHost)
 	versionIncrement := make(chan migrator.VersionIncrement)
 	migrator := migrator.New(aceBackend, metaReader, blueprintClient, tableVersions, migratorPollPeriod,
-		waitProcessorPeriod, offpeakStartHour, offpeakDurationHours, versionIncrement)
+		waitProcessorPeriod, offpeakStartHour, offpeakDurationHours, versionIncrement, onpeakMigrationTimeoutMs,
+		offpeakMigrationTimeoutMs)
 
 	hcBackend := healthcheck.NewBackend(rsConnection, metaReader)
 	hcHandler := healthcheck.NewHandler(hcBackend)

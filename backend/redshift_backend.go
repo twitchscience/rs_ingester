@@ -187,7 +187,7 @@ func applyOperation(op scoop_protocol.Operation, table string, tx *sql.Tx) error
 }
 
 //ApplyOperations applies operations to a table and updates the table's version
-func (r *RedshiftBackend) ApplyOperations(table string, ops []scoop_protocol.Operation, targetVersion int) error {
+func (r *RedshiftBackend) ApplyOperations(table string, ops []scoop_protocol.Operation, targetVersion int, timeoutMs int) error {
 	lock := r.getTableLock(table)
 	lock.Lock()
 	defer lock.Unlock()
@@ -196,6 +196,11 @@ func (r *RedshiftBackend) ApplyOperations(table string, ops []scoop_protocol.Ope
 		err := expectVersion(tx, table, targetVersion-1)
 		if err != nil {
 			return err
+		}
+		// set time out for the migration
+		_, err = tx.Exec("set statement_timeout to $1", timeoutMs)
+		if err != nil {
+			return fmt.Errorf("Error setting timeout for migration: %v", err)
 		}
 		for _, op := range ops {
 			err = applyOperation(op, table, tx)
@@ -301,4 +306,22 @@ func (r *RedshiftBackend) getTableLock(table string) *sync.Mutex {
 		r.tableLocks[table] = lock
 	}
 	return lock
+}
+
+// TableLocked returns whether the given table exists in the logs schema.
+func (r *RedshiftBackend) TableLocked(table string) (bool, error) {
+	query := `SELECT EXISTS (
+		SELECT 1
+		FROM pg_locks l JOIN pg_stat_all_tables t
+			ON l.relation = t.relid
+		WHERE t.relname = $1
+	)`
+	var exists bool
+	err := r.connection.Conn.QueryRow(query, table).Scan(&exists)
+	switch {
+	case err != nil:
+		return false, fmt.Errorf("error querying whether %s table is locked: %v", table, err)
+	default:
+		return exists, nil
+	}
 }

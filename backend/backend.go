@@ -8,7 +8,8 @@ type Backend interface {
 	LoadCheck(*scoop_protocol.LoadCheckRequest) (*scoop_protocol.LoadCheckResponse, error)
 	ManifestCopy(*scoop_protocol.ManifestRowCopyRequest) error
 	TableVersions() (map[string]int, error)
-	ApplyOperations(string, []scoop_protocol.Operation, int) error
+	ApplyOperations(string, []scoop_protocol.Operation, int, int) error
 	CreateTable(string, []scoop_protocol.Operation, int) error
 	TableExists(string) (bool, error)
+	TableLocked(string) (bool, error)
 }
