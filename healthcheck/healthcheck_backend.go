@@ -32,12 +32,10 @@ func (b *Backend) HealthStatus() (IngesterHealthStatus, int) {
 	ingesterHealthStatus := IngesterHealthStatus{nil, nil}
 
 	if redshiftErr != nil {
-		responseCode = http.StatusServiceUnavailable
 		redshiftDBConnError = redshiftErr.Error()
 		ingesterHealthStatus.RedshiftDBConnError = &redshiftDBConnError
 	}
 	if ingesterErr != nil {
-		responseCode = http.StatusInternalServerError
 		ingesterDBConnError = ingesterErr.Error()
 		ingesterHealthStatus.IngesterDBConnError = &ingesterDBConnError
 	}
