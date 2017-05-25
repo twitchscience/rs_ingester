@@ -1,8 +1,3 @@
-/*
-Manage database users
-
-*/
-
 package healthcheck
 
 import (
@@ -15,7 +10,7 @@ import (
 )
 
 // NewHealthRouter initializes the healthcheck router
-func NewHealthRouter(hcHandler *Handler) http.Handler {
+func NewHealthRouter() http.Handler {
 
 	health := web.New()
 
@@ -25,7 +20,12 @@ func NewHealthRouter(hcHandler *Handler) http.Handler {
 	health.Use(lib.SimpleLogger)
 	health.Use(context.ClearHandler)
 
-	health.Get("/health", hcHandler.HealthCheck)
+	health.Get("/health", HealthCheck)
 
 	return health
+}
+
+// HealthCheck responds with the health of the ingester
+func HealthCheck(c web.C, w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
 }
