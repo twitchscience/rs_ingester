@@ -197,11 +197,8 @@ func main() {
 		waitProcessorPeriod, offpeakStartHour, offpeakDurationHours, versionIncrement, onpeakMigrationTimeoutMs,
 		offpeakMigrationTimeoutMs)
 
-	hcBackend := healthcheck.NewBackend(rsConnection, metaReader)
-	hcHandler := healthcheck.NewHandler(hcBackend)
-
 	serveMux := http.NewServeMux()
-	serveMux.Handle("/health", healthcheck.NewHealthRouter(hcHandler))
+	serveMux.Handle("/health", healthcheck.NewHealthRouter())
 
 	controlBackend := control.NewControlBackend(metaReader, tableVersions, versionIncrement)
 	controlHandler := control.NewControlHandler(controlBackend, stats)
