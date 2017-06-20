@@ -310,13 +310,13 @@ func (b *postgresBackend) loadReadyWorker() {
 				return err
 			})
 			if err == nil {
+				if failed != nil {
+					b.loadReady <- failed
+					continue
+				}
 				lastFailedLoadCheck = time.Now().In(time.UTC)
 			} else {
 				logger.WithError(err).Error("Error checking failed loads")
-			}
-
-			if failed != nil {
-				b.loadReady <- failed
 			}
 		}
 
