@@ -91,7 +91,7 @@ func CheckLoadStatus(t *sql.Tx, manifestURL string) (scoop_protocol.LoadStatus, 
 	}
 
 	if aborted == 1 {
-		logger.WithField("manifestURL", manifestURL).Error("CheckLoadStatus: Manifest copy was aborted while running")
+		logger.WithField("manifestURL", manifestURL).Info("CheckLoadStatus: Manifest copy was aborted while running")
 		return scoop_protocol.LoadFailed, nil
 	}
 
