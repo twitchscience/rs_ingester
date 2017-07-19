@@ -87,17 +87,33 @@ only one goroutine is ever modifying them.
 ## Control
 
 The control module provides an API to control aspects parts of the ingester, called from blueprint.
-Current endpoints:
-* `/control/ingest`: This is executes a force load from the blueprint UI.
-It works by setting the `ts` column of rows in `tsv` of the desired table to 1970,
-making it the next table that will be picked up by a loader.
-* `/control/table_exists/:id`: This returns whether a table exists in the `infra.table_versions` table.
-This can return false positives for tables that have been dropped, but it's a trade-off to keep this
-endpoint fast.
-* `/control/increment_version/:id`: This increments a table's version without waiting for a TSV to
-come in and the migration to be executed. This is used to skip the creation of tables that have
-been dropped before any TSVs come in.
 
+On error, each of these endpoints returns a 4xx or 5xx and a JSON object: {"Error": <a human readable string>}
+
+POST endpoints:
+* `/control/force_load`: Execute a force load. On success, response is empty with 204 (no content) status code.
+Body of request must be JSON with:
+
+```
+    Table: name of the table to load
+    Requester: name of the person or system requesting the load
+```
+
+* `/control/increment_version/:id`: Increment a table's version without waiting for a TSV to
+come in and the migration to be executed. On success, response is empty with 204 (no content) status code.
+
+GET endpoints:
+* `/control/table_exists/:id`: Return if a table exists in the `infra.table_versions` table.
+Can return false positives for tables that have been dropped.
+
+Response format:
+
+    {"Exists": bool}
+
+
+### Blueprint's usage
+Blueprint's UI forwards to the force load endpoint in response to a button press, and uses increment version
+to drop tables which don't have any events being sent.
 
 ## License
 [see LICENSE](LICENSE)
