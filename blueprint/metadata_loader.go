@@ -106,8 +106,8 @@ func NewMetadataLoader(
 
 // GetMetadataValueByType returns the metadata value given an eventName and metadataType
 func (d *MetadataLoader) GetMetadataValueByType(eventName string, metadataType string) string {
-	// d.lock.RLock()
-	// defer d.lock.RUnlock()
+	d.lock.RLock()
+	defer d.lock.RUnlock()
 	if eventMetadata, found := d.configs.Metadata[eventName]; found {
 		if metadataRow, exists := eventMetadata[metadataType]; exists {
 			return metadataRow.MetadataValue
@@ -193,7 +193,9 @@ func (d *MetadataLoader) Crank() {
 				continue
 			}
 			d.stats.SafeTiming("config.success", int64(time.Since(now)), 0.1)
+			d.lock.Lock()
 			d.configs = newConfig
+			d.lock.Unlock()
 		case <-d.closer:
 			tick.Stop()
 			return
