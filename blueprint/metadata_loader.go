@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/twitchscience/aws_utils/logger"
@@ -33,7 +34,7 @@ type MetadataLoader struct {
 
 	closer chan bool
 	stats  monitoring.SafeStatter
-	// lock   *sync.RWMutex
+	lock   *sync.RWMutex
 	// stats    reporter.StatsLogger
 }
 
@@ -77,7 +78,7 @@ func NewMetadataLoader(
 		configs:    scoop_protocol.EventMetadataConfig{},
 		closer:     make(chan bool),
 		stats:      stats,
-		// lock:       &sync.RWMutex{},
+		lock:       &sync.RWMutex{},
 	}
 
 	config, err := d.retryPull(5, retryDelay)
@@ -131,8 +132,8 @@ func (d *MetadataLoader) GetMetadataValueByType(eventName string, metadataType s
 
 // GetAllMetadata returns all metadata,
 func (d *MetadataLoader) GetAllMetadata() map[string]map[string]scoop_protocol.EventMetadataRow {
-	// d.lock.RLock()
-	// defer d.lock.RUnlock()
+	d.lock.RLock()
+	defer d.lock.RUnlock()
 	return d.configs.Metadata
 }
 
