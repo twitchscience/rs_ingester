@@ -15,6 +15,7 @@ type ColumnDefinition struct {
 	OutboundName          string
 	Transformer           string // this should match one of the types in redshift types
 	ColumnCreationOptions string
+	SupportingColumns     string // comma separated list used by mapping transformers
 }
 
 type Config struct {
@@ -39,16 +40,39 @@ type Operation struct {
 	Action         Action
 	Name           string
 	ActionMetadata map[string]string
+	Version        int
+	Ordering       int
 }
 
-func NewAddOperation(outbound, inbound, type_, options string) Operation {
+type EventMetadataType string
+
+const (
+	COMMENT    EventMetadataType = "comment"
+	EDGE_TYPE  EventMetadataType = "edge_type"
+	TAHOE_ONLY EventMetadataType = "tahoe_only"
+)
+
+type EventMetadataRow struct {
+	MetadataValue string
+	TS            time.Time
+	UserName      string
+	Version       int
+}
+
+type EventMetadataConfig struct {
+	// The first key is the event name, second key is metadata type
+	Metadata map[string](map[string]EventMetadataRow)
+}
+
+func NewAddOperation(outbound, inbound, type_, options, columns string) Operation {
 	return Operation{
 		Action: ADD,
 		Name:   outbound,
 		ActionMetadata: map[string]string{
-			"inbound":        inbound,
-			"column_type":    type_,
-			"column_options": options,
+			"inbound":            inbound,
+			"column_type":        type_,
+			"column_options":     options,
+			"supporting_columns": columns,
 		},
 	}
 }
