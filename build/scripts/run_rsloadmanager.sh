@@ -30,3 +30,7 @@ exec ./rsloadmanager \
   -onpeakMigrationTimeoutMs="${ONPEAK_MIGRATION_TIMEOUT_MILLISECONDS}" \
   -offpeakMigrationTimeoutMs="${OFFPEAK_MIGRATION_TIMEOUT_MILLISECONDS}" \
   -reporterPollPeriod="${REPORTER_POLL_PERIOD}" \
+  -bpConfigsBucket="${BP_CONFIGS_BUCKET}" \
+  -bpMetadataConfigsKey="${BP_METADATA_CONFIGS_KEY}" \
+  -bpMetadataReloadFrequency="{BP_METADATA_RELOAD_FREQUENCY}" \
+  -bpMetadataRetryDelay="{BP_METADATA_RETRY_DELAY}" \
