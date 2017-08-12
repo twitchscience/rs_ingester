@@ -33,6 +33,7 @@ type MetadataLoader struct {
 
 	closer chan bool
 	stats  monitoring.SafeStatter
+	// lock   *sync.RWMutex
 	// stats    reporter.StatsLogger
 }
 
@@ -76,6 +77,7 @@ func NewMetadataLoader(
 		configs:    scoop_protocol.EventMetadataConfig{},
 		closer:     make(chan bool),
 		stats:      stats,
+		// lock:       &sync.RWMutex{},
 	}
 
 	config, err := d.retryPull(5, retryDelay)
@@ -96,14 +98,42 @@ func NewMetadataLoader(
 // 	return ""
 // }
 
+// Remove later
+// func (d *MetadataLoader) Print() scoop_protocol.EventMetadataConfig {
+// 	return d.configs
+// }
+
 // GetMetadataValueByType returns the metadata value given an eventName and metadataType
 func (d *MetadataLoader) GetMetadataValueByType(eventName string, metadataType string) string {
+	// d.lock.RLock()
+	// defer d.lock.RUnlock()
 	if eventMetadata, found := d.configs.Metadata[eventName]; found {
 		if metadataRow, exists := eventMetadata[metadataType]; exists {
 			return metadataRow.MetadataValue
 		}
 	}
 	return ""
+}
+
+// GetMetadataValueByTypeWithError returns the metadata value given an eventName and metadataType
+// func (d *MetadataLoader) GetMetadataValueByTypeWithError(eventName string, metadataType string) (string, error) {
+// 	d.lock.RLock()
+// 	defer d.lock.RUnlock()
+// 	if eventMetadata, found := d.configs.Metadata[eventName]; found {
+// 		if metadataRow, exists := eventMetadata[metadataType]; exists {
+// 			return metadataRow.MetadataValue, nil
+// 		}
+// 		return "", fmt.Errorf("Could not find the %s metadata for event %s", metadataType, eventName)
+// 	}
+
+// 	return "", fmt.Errorf("There is no metadata for event %s", eventName)
+// }
+
+// GetAllMetadata returns all metadata,
+func (d *MetadataLoader) GetAllMetadata() map[string]map[string]scoop_protocol.EventMetadataRow {
+	// d.lock.RLock()
+	// defer d.lock.RUnlock()
+	return d.configs.Metadata
 }
 
 func (d *MetadataLoader) retryPull(n int, waitTime time.Duration) (scoop_protocol.EventMetadataConfig, error) {
