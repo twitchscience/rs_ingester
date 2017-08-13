@@ -9,7 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 )
 
-// ConfigFetcher is responsible for obtaining and/or writing configs from Blueprint.
+// ConfigFetcher is responsible for obtaining  configs from Blueprint
 type ConfigFetcher interface {
 	Fetch() (io.ReadCloser, error)
 }
@@ -20,7 +20,7 @@ type fetcher struct {
 	key    string
 }
 
-// NewFetcher returns a ConfigFetcher that reads configs from the given s3 bucket+key.
+// NewFetcher returns a ConfigFetcher that reads configs from the given S3 bucket and key.
 func NewFetcher(bucket, key string, s3 s3iface.S3API) ConfigFetcher {
 	return &fetcher{
 		s3:     s3,
@@ -29,7 +29,7 @@ func NewFetcher(bucket, key string, s3 s3iface.S3API) ConfigFetcher {
 	}
 }
 
-// Fetch returns a reader for the config.
+// Fetch returns a reader for the config
 func (f *fetcher) Fetch() (io.ReadCloser, error) {
 	resp, err := f.s3.GetObject(&s3.GetObjectInput{
 		Bucket: &f.bucket,

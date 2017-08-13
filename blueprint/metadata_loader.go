@@ -12,7 +12,7 @@ import (
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
 
-// MetadataLoader fetches configs on an interval, with stats on the fetching process.
+// MetadataLoader fetches configs on an interval, with stats on the fetching process
 type MetadataLoader struct {
 	fetcher    ConfigFetcher
 	reloadTime time.Duration
@@ -24,7 +24,7 @@ type MetadataLoader struct {
 	lock   *sync.RWMutex
 }
 
-// NewMetadataLoader returns a new MetadataLoader, performing the first fetch.
+// NewMetadataLoader returns a new MetadataLoader, performing the first fetch
 func NewMetadataLoader(
 	fetcher ConfigFetcher,
 	reloadTime time.Duration,
@@ -117,7 +117,7 @@ func (d *MetadataLoader) Crank() {
 			now := time.Now()
 			newConfig, err := d.retryPull(5, d.retryDelay)
 			if err != nil {
-				logger.WithError(err).Error("Failed to refresh config")
+				logger.WithError(err).Error("Failed to refresh Blueprint metadata")
 				d.stats.SafeTiming("config.error", int64(time.Since(now)), 0.1)
 				continue
 			}
