@@ -9,21 +9,8 @@ import (
 
 	"github.com/twitchscience/aws_utils/logger"
 	"github.com/twitchscience/rs_ingester/monitoring"
-	// "github.com/twitchscience/rs_ingester/fetcher"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
-
-// StaticLoader is a static set of transformers and versions.
-// type StaticLoader struct {
-// 	configs scoop_protocol.EventMetadataConfig
-// }
-
-// NewStaticLoader creates a StaticLoader from the given event metadata config
-// func NewStaticLoader(config scoop_protocol.EventMetadataConfig) *StaticLoader {
-// 	return &StaticLoader{
-// 		configs: config,
-// 	}
-// }
 
 // MetadataLoader fetches configs on an interval, with stats on the fetching process.
 type MetadataLoader struct {
@@ -35,33 +22,7 @@ type MetadataLoader struct {
 	closer chan bool
 	stats  monitoring.SafeStatter
 	lock   *sync.RWMutex
-	// stats    reporter.StatsLogger
 }
-
-// NewDynamicLoader returns a new MetadataLoader, performing the first fetch.
-// func NewMetadataLoader(
-// 	fetcher fetcher.ConfigFetcher,
-// 	reloadTime time.Duration,
-// 	retryDelay time.Duration,
-// 	// stats monitoring.SafeStatter,
-// 	// stats reporter.StatsLogger,
-// ) (*MetadataLoader, error) {
-// 	d := MetadataLoader{
-// 		fetcher:    fetcher,
-// 		reloadTime: reloadTime,
-// 		retryDelay: retryDelay,
-// 		configs:    scoop_protocol.EventMetadataConfig{},
-// 		closer:     make(chan bool),
-// 		// stats:      stats,
-// 	}
-
-// 	config, err := d.retryPull(5, retryDelay)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	d.configs = config
-// 	return &d, nil
-// }
 
 // NewMetadataLoader returns a new MetadataLoader, performing the first fetch.
 func NewMetadataLoader(
@@ -69,7 +30,6 @@ func NewMetadataLoader(
 	reloadTime time.Duration,
 	retryDelay time.Duration,
 	stats monitoring.SafeStatter,
-	// stats reporter.StatsLogger,
 ) (*MetadataLoader, error) {
 	d := MetadataLoader{
 		fetcher:    fetcher,
@@ -90,21 +50,6 @@ func NewMetadataLoader(
 }
 
 // GetMetadataValueByType returns the metadata value given an eventName and metadataType
-// func (s *StaticLoader) GetMetadataValueByType(eventName string, metadataType string) string {
-// 	if eventMetadata, found := s.configs.Metadata[eventName]; found {
-// 		if metadataRow, exists := eventMetadata[metadataType]; exists {
-// 			return metadataRow.MetadataValue
-// 		}
-// 	}
-// 	return ""
-// }
-
-// Remove later
-// func (d *MetadataLoader) Print() scoop_protocol.EventMetadataConfig {
-// 	return d.configs
-// }
-
-// GetMetadataValueByType returns the metadata value given an eventName and metadataType
 func (d *MetadataLoader) GetMetadataValueByType(eventName string, metadataType string) string {
 	d.lock.RLock()
 	defer d.lock.RUnlock()
@@ -116,21 +61,7 @@ func (d *MetadataLoader) GetMetadataValueByType(eventName string, metadataType s
 	return ""
 }
 
-// GetMetadataValueByTypeWithError returns the metadata value given an eventName and metadataType
-// func (d *MetadataLoader) GetMetadataValueByTypeWithError(eventName string, metadataType string) (string, error) {
-// 	d.lock.RLock()
-// 	defer d.lock.RUnlock()
-// 	if eventMetadata, found := d.configs.Metadata[eventName]; found {
-// 		if metadataRow, exists := eventMetadata[metadataType]; exists {
-// 			return metadataRow.MetadataValue, nil
-// 		}
-// 		return "", fmt.Errorf("Could not find the %s metadata for event %s", metadataType, eventName)
-// 	}
-
-// 	return "", fmt.Errorf("There is no metadata for event %s", eventName)
-// }
-
-// GetAllMetadata returns all metadata,
+// GetAllMetadata returns all metadata
 func (d *MetadataLoader) GetAllMetadata() map[string]map[string]scoop_protocol.EventMetadataRow {
 	d.lock.RLock()
 	defer d.lock.RUnlock()
@@ -169,8 +100,6 @@ func (d *MetadataLoader) pullConfigIn() (scoop_protocol.EventMetadataConfig, err
 	}
 	return cfgs, nil
 }
-
-// func (d *MetadataLoader) safeTiming()
 
 // Close stops the MetadataLoader's fetching process.
 func (d *MetadataLoader) Close() {
