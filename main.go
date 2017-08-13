@@ -244,6 +244,7 @@ func main() {
 		<-sigc
 		logger.Info("Sigint received -- shutting down")
 		migrator.Close()
+		bpMetadataLoader.Close()
 		statsReporter.Close()
 		if metaBackend != nil {
 			metaBackend.Close()
