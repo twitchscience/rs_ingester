@@ -121,6 +121,7 @@ func (d *MetadataLoader) Crank() {
 				d.stats.SafeTiming("config.error", int64(time.Since(now)), 0.1)
 				continue
 			}
+			logger.Info("Successfully refreshed Blueprint metadata")
 			d.stats.SafeTiming("config.success", int64(time.Since(now)), 0.1)
 			d.lock.Lock()
 			d.configs = newConfig
