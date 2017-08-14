@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/twitchscience/aws_utils/logger"
 	"github.com/twitchscience/rs_ingester/monitoring"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
@@ -52,7 +53,7 @@ func TestRefresh(t *testing.T) {
 		t.FailNow()
 	}
 
-	metadata := loader.GetAllMetadata()["Metadata"]
+	metadata := loader.GetAllMetadata().Metadata["Metadata"]
 	if len(metadata) == 0 {
 		t.Fatal("expected metadata to be non-empty")
 		t.FailNow()
@@ -61,7 +62,8 @@ func TestRefresh(t *testing.T) {
 	go loader.Crank()
 	time.Sleep(101 * time.Millisecond)
 
-	metadata = loader.GetAllMetadata()["Metadata"]
+	metadata = loader.GetAllMetadata().Metadata["Metadata"]
+	logger.Error(metadata)
 	if len(metadata) != 0 {
 		t.Fatal("expected metadata to be empty")
 		t.FailNow()

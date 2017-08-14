@@ -62,10 +62,10 @@ func (d *MetadataLoader) GetMetadataValueByType(eventName string, metadataType s
 }
 
 // GetAllMetadata returns all metadata
-func (d *MetadataLoader) GetAllMetadata() map[string]map[string]scoop_protocol.EventMetadataRow {
+func (d *MetadataLoader) GetAllMetadata() scoop_protocol.EventMetadataConfig {
 	d.lock.RLock()
 	defer d.lock.RUnlock()
-	return d.configs.Metadata
+	return d.configs
 }
 
 func (d *MetadataLoader) retryPull(n int, waitTime time.Duration) (scoop_protocol.EventMetadataConfig, error) {
