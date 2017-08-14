@@ -118,11 +118,11 @@ func (d *MetadataLoader) Crank() {
 			newConfig, err := d.retryPull(5, d.retryDelay)
 			if err != nil {
 				logger.WithError(err).Error("Failed to refresh Blueprint metadata")
-				d.stats.SafeTiming("config.error", int64(time.Since(now)), 0.1)
+				d.stats.SafeTiming("config.error", int64(time.Since(now)), 1)
 				continue
 			}
 			logger.Info("Successfully refreshed Blueprint metadata")
-			d.stats.SafeTiming("config.success", int64(time.Since(now)), 0.1)
+			d.stats.SafeTiming("config.success", int64(time.Since(now)), 1)
 			d.lock.Lock()
 			d.configs = newConfig
 			d.lock.Unlock()
