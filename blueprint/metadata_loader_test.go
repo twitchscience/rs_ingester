@@ -37,10 +37,7 @@ func TestRefresh(t *testing.T) {
 	stats, _ := monitoring.InitStats("scieng-test.ingester")
 	loader, err := NewMetadataLoader(
 		&mockFetcher{
-			failFetch: []bool{
-				false,
-				false,
-			},
+			failFetch: []bool{false, false},
 			configs: []scoop_protocol.EventMetadataConfig{
 				knownEventMetadataOne,
 				knownEventMetadataTwo,
@@ -53,7 +50,6 @@ func TestRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("was expecting no error but got %v\n", err)
 		t.FailNow()
-
 	}
 
 	metadata := loader.GetAllMetadata()["Metadata"]
@@ -70,20 +66,14 @@ func TestRefresh(t *testing.T) {
 		t.Fatal("expected metadata to be empty")
 		t.FailNow()
 	}
-	loader.closer <- true
+	loader.Close()
 }
 
 func TestRetryPull(t *testing.T) {
 	stats, _ := monitoring.InitStats("scieng-test.ingester")
 	_, err := NewMetadataLoader(
 		&mockFetcher{
-			failFetch: []bool{
-				true,
-				true,
-				true,
-				true,
-				true,
-			},
+			failFetch: []bool{true, true, true, true, true},
 		},
 		1*time.Second,
 		1*time.Microsecond,
