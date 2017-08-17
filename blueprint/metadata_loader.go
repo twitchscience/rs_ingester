@@ -3,7 +3,6 @@ package blueprint
 import (
 	"encoding/json"
 	"io/ioutil"
-	"math/rand"
 	"sync"
 	"time"
 
@@ -101,6 +100,27 @@ func (d *MetadataLoader) pullConfigIn() (scoop_protocol.EventMetadataConfig, err
 	return cfgs, nil
 }
 
+func (d *MetadataLoader) refresh() error {
+	newConfig, err := d.retryPull(5, d.retryDelay)
+	if err != nil {
+		return err
+	}
+	logger.Info("Successfully refreshed Blueprint metadata")
+	d.lock.Lock()
+	d.configs = newConfig
+	d.lock.Unlock()
+	return nil
+}
+
+// ForceReload forces the metadata loader to load metadata right away
+func (d *MetadataLoader) ForceReload() {
+	logger.Info("Received request to force a reload of Blueprint metadata")
+	err := d.refresh()
+	if err != nil {
+		logger.WithError(err).Error("Failed to refresh Blueprint metadata")
+	}
+}
+
 // Close stops the MetadataLoader's fetching process.
 func (d *MetadataLoader) Close() {
 	d.closer <- true
@@ -109,23 +129,15 @@ func (d *MetadataLoader) Close() {
 // Crank is a blocking function that refreshes the config on an interval.
 func (d *MetadataLoader) Crank() {
 	// Jitter reload
-	tick := time.NewTicker(d.reloadTime + time.Duration(rand.Intn(100))*time.Millisecond)
+	tick := time.NewTicker(d.reloadTime)
 	for {
 		select {
 		case <-tick.C:
-			// can put a circuit breaker here.
-			now := time.Now()
-			newConfig, err := d.retryPull(5, d.retryDelay)
+			err := d.refresh()
 			if err != nil {
 				logger.WithError(err).Error("Failed to refresh Blueprint metadata")
-				d.stats.SafeTiming("config.error", int64(time.Since(now)), 1)
 				continue
 			}
-			logger.Info("Successfully refreshed Blueprint metadata")
-			d.stats.SafeTiming("config.success", int64(time.Since(now)), 1)
-			d.lock.Lock()
-			d.configs = newConfig
-			d.lock.Unlock()
 		case <-d.closer:
 			tick.Stop()
 			return

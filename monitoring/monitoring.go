@@ -12,7 +12,6 @@ type SafeStatter interface {
 	statsd.Statter
 	SafeInc(stat string, value int64, rate float32)
 	SafeGauge(stat string, value int64, rate float32)
-	SafeTiming(stat string, value int64, rate float32)
 }
 
 // LoggingStatter is a statter that logs errors.
@@ -33,14 +32,6 @@ func (s *LoggingStatter) SafeGauge(stat string, value int64, rate float32) {
 	err := s.Gauge(stat, value, rate)
 	if err != nil {
 		logger.WithError(err).Errorf("Error sending stat %s Gauge to statsd", stat)
-	}
-}
-
-// SafeTiming submits a timing, logging errors.
-func (s *LoggingStatter) SafeTiming(stat string, value int64, rate float32) {
-	err := s.Timing(stat, value, rate)
-	if err != nil {
-		logger.WithError(err).Errorf("Error sending stat %s Timing to statsd", stat)
 	}
 }
 

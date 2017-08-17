@@ -214,7 +214,7 @@ func main() {
 	versionIncrement := make(chan migrator.VersionIncrement)
 	migrator := migrator.New(aceBackend, metaReader, blueprintClient, tableVersions, migratorPollPeriod,
 		waitProcessorPeriod, offpeakStartHour, offpeakDurationHours, versionIncrement, onpeakMigrationTimeoutMs,
-		offpeakMigrationTimeoutMs)
+		offpeakMigrationTimeoutMs, bpMetadataLoader)
 
 	serveMux := http.NewServeMux()
 	serveMux.Handle("/health", healthcheck.NewHealthRouter())
