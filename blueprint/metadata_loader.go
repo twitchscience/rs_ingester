@@ -2,7 +2,6 @@ package blueprint
 
 import (
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"strings"
 	"sync"
@@ -77,7 +76,7 @@ func (d *MetadataLoader) TableExists(eventName string) bool {
 
 // LoadIntoAce returns whether an event is to be loaded into Ace based on the metadata
 func (d *MetadataLoader) LoadIntoAce(eventName string) bool {
-	datastores := strings.Split(d.GetMetadataValueByType(eventName, fmt.Sprintf("%s", scoop_protocol.DATASTORES)), ",")
+	datastores := strings.Split(d.GetMetadataValueByType(eventName, string(scoop_protocol.DATASTORES)), ",")
 	for _, datastore := range datastores {
 		if datastore == "ace" {
 			return true
