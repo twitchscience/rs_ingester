@@ -38,6 +38,7 @@ type Backend interface {
 // Storer specifies recording loads in the db
 type Storer interface {
 	InsertLoad(load *Load) error
+	ListDistinctTables() ([]string, error)
 	Close()
 }
 

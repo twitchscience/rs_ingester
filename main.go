@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager/s3manageriface"
 	"github.com/twitchscience/aws_utils/logger"
@@ -62,10 +61,6 @@ var (
 	offpeakDurationHours      int
 	onpeakMigrationTimeoutMs  int
 	offpeakMigrationTimeoutMs int
-	bpConfigsBucket           string
-	bpMetadataConfigsKey      string
-	bpMetadataReloadFrequency time.Duration
-	bpMetadataRetryDelay      time.Duration
 )
 
 type loadWorker struct {
@@ -141,10 +136,6 @@ func init() {
 	flag.IntVar(&offpeakDurationHours, "offpeakDurationHours", 8, "Duration of the offpeak migration period, in hours")
 	flag.IntVar(&onpeakMigrationTimeoutMs, "onpeakMigrationTimeoutMs", 600000, "Timeout of a migration forced on-peak")
 	flag.IntVar(&offpeakMigrationTimeoutMs, "offpeakMigrationTimeoutMs", 10800000, "Timeout of a migration off-peak")
-	flag.StringVar(&bpConfigsBucket, "bpConfigsBucket", "", "The S3 bucket name where Blueprint configs are stored")
-	flag.StringVar(&bpMetadataConfigsKey, "bpMetadataConfigsKey", "", "The file name of the Blueprint event metadata configs on S3")
-	flag.DurationVar(&bpMetadataReloadFrequency, "bpMetadataReloadFrequency", 5*time.Minute, "How often to load Blueprint event metadata from S3")
-	flag.DurationVar(&bpMetadataRetryDelay, "bpMetadataRetryDelay", 2*time.Second, "How long to sleep if there's an error loading Blueprint event metadata from S3")
 }
 
 func main() {
@@ -164,13 +155,6 @@ func main() {
 	session, err := session.NewSession()
 	if err != nil {
 		logger.WithError(err).Fatal("Failed to setup aws session")
-	}
-
-	s3 := s3.New(session)
-	fetcher := blueprint.NewFetcher(bpConfigsBucket, bpMetadataConfigsKey, s3)
-	bpMetadataLoader, err := blueprint.NewMetadataLoader(fetcher, bpMetadataReloadFrequency, bpMetadataRetryDelay, stats)
-	if err != nil {
-		logger.WithError(err).Error("Failed to setup new Blueprint metadata loader")
 	}
 
 	s3Uploader := s3manager.NewUploader(session)
@@ -214,7 +198,7 @@ func main() {
 	versionIncrement := make(chan migrator.VersionIncrement)
 	migrator := migrator.New(aceBackend, metaReader, blueprintClient, tableVersions, migratorPollPeriod,
 		waitProcessorPeriod, offpeakStartHour, offpeakDurationHours, versionIncrement, onpeakMigrationTimeoutMs,
-		offpeakMigrationTimeoutMs, bpMetadataLoader)
+		offpeakMigrationTimeoutMs)
 
 	serveMux := http.NewServeMux()
 	serveMux.Handle("/health", healthcheck.NewHealthRouter())
@@ -234,8 +218,6 @@ func main() {
 			Error("Serving pprof failed")
 	})
 
-	logger.Go(bpMetadataLoader.Crank)
-
 	wait := make(chan struct{})
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc, syscall.SIGINT)
@@ -244,7 +226,6 @@ func main() {
 		<-sigc
 		logger.Info("Sigint received -- shutting down")
 		migrator.Close()
-		bpMetadataLoader.Close()
 		statsReporter.Close()
 		if metaBackend != nil {
 			metaBackend.Close()

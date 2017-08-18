@@ -236,11 +236,11 @@
 		},
 		{
 			"ImportPath": "github.com/twitchscience/scoop_protocol/msg_signer",
-			"Rev": "261869c00a68afbcf9b8f6257e2ad563378a31d6"
+			"Rev": "290bd0d5089dcfff4c9eb38cf4e467f0cc13046f"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/scoop_protocol/scoop_protocol",
-			"Rev": "261869c00a68afbcf9b8f6257e2ad563378a31d6"
+			"Rev": "290bd0d5089dcfff4c9eb38cf4e467f0cc13046f"
 		},
 		{
 			"ImportPath": "github.com/zenazn/goji/web",

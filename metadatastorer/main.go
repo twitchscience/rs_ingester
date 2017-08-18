@@ -18,29 +18,37 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/sqs"
 	"github.com/aws/aws-sdk-go/service/sqs/sqsiface"
 	"github.com/twitchscience/aws_utils/listener"
 	"github.com/twitchscience/aws_utils/logger"
+	"github.com/twitchscience/rs_ingester/blueprint"
 	"github.com/twitchscience/rs_ingester/metadata"
 	"github.com/twitchscience/rs_ingester/monitoring"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
 
 var (
-	pgConfig           metadata.PGConfig
-	sqsPollWait        time.Duration
-	sqsQueueName       string
-	statsPrefix        string
-	listenerCount      int
-	rollbarToken       string
-	rollbarEnvironment string
+	pgConfig                  metadata.PGConfig
+	sqsPollWait               time.Duration
+	sqsQueueName              string
+	statsPrefix               string
+	listenerCount             int
+	rollbarToken              string
+	rollbarEnvironment        string
+	bpConfigsBucket           string
+	bpMetadataConfigsKey      string
+	bpMetadataReloadFrequency time.Duration
+	bpMetadataRetryDelay      time.Duration
 )
 
 type rdsPipeHandler struct {
-	MetadataStorer metadata.Storer
-	Signer         scoop_protocol.ScoopSigner
-	Statter        monitoring.SafeStatter
+	MetadataStorer   metadata.Storer
+	Signer           scoop_protocol.ScoopSigner
+	Statter          monitoring.SafeStatter
+	BpMetadataLoader *blueprint.MetadataLoader
+	Tables           map[string]bool
 }
 
 func init() {
@@ -52,6 +60,10 @@ func init() {
 	flag.IntVar(&listenerCount, "listenerCount", 1, "Number of sqs listeners to run")
 	flag.StringVar(&rollbarToken, "rollbarToken", "", "Rollbar post_server_item token")
 	flag.StringVar(&rollbarEnvironment, "rollbarEnvironment", "", "Rollbar environment")
+	flag.StringVar(&bpConfigsBucket, "bpConfigsBucket", "", "The S3 bucket name where Blueprint configs are stored")
+	flag.StringVar(&bpMetadataConfigsKey, "bpMetadataConfigsKey", "", "The file name of the Blueprint event metadata configs on S3")
+	flag.DurationVar(&bpMetadataReloadFrequency, "bpMetadataReloadFrequency", 5*time.Minute, "How often to load Blueprint event metadata from S3")
+	flag.DurationVar(&bpMetadataRetryDelay, "bpMetadataRetryDelay", 2*time.Second, "How long to sleep if there's an error loading Blueprint event metadata from S3")
 }
 
 func main() {
@@ -78,6 +90,15 @@ func main() {
 	if err != nil {
 		logger.WithError(err).Fatal("Failed to setup aws session")
 	}
+
+	s3 := s3.New(session)
+	fetcher := blueprint.NewFetcher(bpConfigsBucket, bpMetadataConfigsKey, s3)
+	bpMetadataLoader, err := blueprint.NewMetadataLoader(fetcher, bpMetadataReloadFrequency, bpMetadataRetryDelay, stats)
+	if err != nil {
+		logger.WithError(err).Error("Failed to setup new Blueprint metadata loader")
+	}
+	logger.Go(bpMetadataLoader.Crank)
+
 	// In cases we get a temporary influx of traffic, want to be resilient.
 	sqs := sqs.New(session, aws.NewConfig().WithMaxRetries(10))
 
@@ -86,7 +107,7 @@ func main() {
 
 	listeners := make([]*listener.SQSListener, listenerCount)
 	for i := 0; i < listenerCount; i++ {
-		listeners[i] = startWorker(sqs, sqsQueueName, stats, postgresBackend, filter)
+		listeners[i] = startWorker(sqs, sqsQueueName, stats, postgresBackend, filter, bpMetadataLoader)
 	}
 
 	wait := make(chan struct{})
@@ -96,6 +117,7 @@ func main() {
 	logger.Go(func() {
 		<-sigc
 		logger.Info("Sigint received -- shutting down")
+		bpMetadataLoader.Close()
 		// Cause flush
 		var wg sync.WaitGroup
 		wg.Add(listenerCount)
@@ -115,12 +137,24 @@ func main() {
 	<-wait
 }
 
-func startWorker(sqs sqsiface.SQSAPI, queue string, stats monitoring.SafeStatter, b metadata.Storer, f listener.SQSFilter) *listener.SQSListener {
+func startWorker(sqs sqsiface.SQSAPI, queue string, stats monitoring.SafeStatter, b metadata.Storer, f listener.SQSFilter, metadataLoader *blueprint.MetadataLoader) *listener.SQSListener {
+	tables, err := b.ListDistinctTables()
+	if err != nil {
+		logger.WithError(err).Error("Error listing distinct tables from tsv")
+	}
+
+	var tablesMap = make(map[string]bool)
+	for _, table := range tables {
+		tablesMap[table] = true
+	}
+
 	ret := listener.BuildSQSListener(
 		&rdsPipeHandler{
-			MetadataStorer: b,
-			Signer:         scoop_protocol.GetScoopSigner(),
-			Statter:        stats,
+			MetadataStorer:   b,
+			Signer:           scoop_protocol.GetScoopSigner(),
+			Statter:          stats,
+			Tables:           tablesMap,
+			BpMetadataLoader: metadataLoader,
 		},
 		sqsPollWait,
 		sqs,
@@ -138,6 +172,31 @@ func (i *rdsPipeHandler) Handle(msg *sqs.Message) error {
 	}
 
 	load := metadata.Load(*req)
+
+	if _, found := i.Tables[load.TableName]; !found {
+		i.BpMetadataLoader.ForceReload()
+	}
+
+	if !i.BpMetadataLoader.TableExists(load.TableName) {
+		err = fmt.Errorf("No metadata found for table %s after force refresh", load.TableName)
+		logger.WithError(err).Error("Error retrieving target datastores")
+		return err
+	}
+
+	i.Tables[load.TableName] = true
+
+	if !i.BpMetadataLoader.LoadIntoAce(load.TableName) {
+		i.Statter.SafeInc(fmt.Sprintf("tsv_files.%s.skipped.ace", load.TableName), 1, 1.0)
+		i.Statter.SafeInc("tsv_files.total.skipped.ace", 1, 1.0)
+		return nil
+	}
+
+	// Call i.GetTables() (distinguish between read table and get tables)
+	// If we don't know about the table, refresh the metadata and add it to tables
+	// If metadata read fails, rollbar error
+	// If we still don't know about the table... error
+	// Add to list of tables we know about
+	// If not load into ace, return nil
 
 	eventPattern := "tsv_files.%s.received"
 	i.Statter.SafeInc(fmt.Sprintf(eventPattern, load.TableName), 1, 1.0)

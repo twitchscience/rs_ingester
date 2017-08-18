@@ -2,7 +2,9 @@ package blueprint
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,6 +69,23 @@ func (d *MetadataLoader) GetAllMetadata() scoop_protocol.EventMetadataConfig {
 	return d.configs
 }
 
+// TableExists returns if an event exists in the metadata
+func (d *MetadataLoader) TableExists(eventName string) bool {
+	_, found := d.configs.Metadata[eventName]
+	return found
+}
+
+// LoadIntoAce returns whether an event is to be loaded into Ace based on the metadata
+func (d *MetadataLoader) LoadIntoAce(eventName string) bool {
+	datastores := strings.Split(d.GetMetadataValueByType(eventName, fmt.Sprintf("%s", scoop_protocol.DATASTORES)), ",")
+	for _, datastore := range datastores {
+		if datastore == "ace" {
+			return true
+		}
+	}
+	return false
+}
+
 func (d *MetadataLoader) retryPull(n int, waitTime time.Duration) (scoop_protocol.EventMetadataConfig, error) {
 	var err error
 	var config scoop_protocol.EventMetadataConfig
@@ -105,7 +124,6 @@ func (d *MetadataLoader) refresh() error {
 	if err != nil {
 		return err
 	}
-	logger.Info("Successfully refreshed Blueprint metadata")
 	d.lock.Lock()
 	d.configs = newConfig
 	d.lock.Unlock()
@@ -114,11 +132,12 @@ func (d *MetadataLoader) refresh() error {
 
 // ForceReload forces the metadata loader to load metadata right away
 func (d *MetadataLoader) ForceReload() {
-	logger.Info("Received request to force a reload of Blueprint metadata")
 	err := d.refresh()
 	if err != nil {
-		logger.WithError(err).Error("Failed to refresh Blueprint metadata")
+		logger.WithError(err).Error("Failed to force a refresh of Blueprint metadata")
+		return
 	}
+	logger.Info("Successfully forced a refresh of Blueprint metadata")
 }
 
 // Close stops the MetadataLoader's fetching process.
@@ -138,6 +157,7 @@ func (d *MetadataLoader) Crank() {
 				logger.WithError(err).Error("Failed to refresh Blueprint metadata")
 				continue
 			}
+			logger.Info("Successfully refreshed Blueprint metadata")
 		case <-d.closer:
 			tick.Stop()
 			return

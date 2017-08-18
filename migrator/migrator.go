@@ -41,7 +41,6 @@ type Migrator struct {
 	offpeakDurationHours      int
 	onpeakMigrationTimeoutMs  int
 	offpeakMigrationTimeoutMs int
-	bpMetadataLoader          *blueprint.MetadataLoader
 }
 
 // New returns a new Migrator for migrating schemas
@@ -55,8 +54,7 @@ func New(aceBack backend.Backend,
 	offpeakDurationHours int,
 	versionIncrement chan VersionIncrement,
 	onpeakMigrationTimeoutMs int,
-	offpeakMigrationTimeoutMs int,
-	bpMetadataLoader *blueprint.MetadataLoader) *Migrator {
+	offpeakMigrationTimeoutMs int) *Migrator {
 	m := Migrator{
 		versions:                  versions,
 		aceBackend:                aceBack,
@@ -72,7 +70,6 @@ func New(aceBack backend.Backend,
 		offpeakDurationHours:      offpeakDurationHours,
 		onpeakMigrationTimeoutMs:  onpeakMigrationTimeoutMs,
 		offpeakMigrationTimeoutMs: offpeakMigrationTimeoutMs,
-		bpMetadataLoader:          bpMetadataLoader,
 	}
 
 	m.wg.Add(1)
@@ -225,7 +222,6 @@ func (m *Migrator) findAndApplyMigrations() {
 	if len(outdatedTables) == 0 {
 		logger.Infof("Migrator didn't find any tables to migrate.")
 	} else {
-		m.bpMetadataLoader.ForceReload()
 		logger.WithField("numTables", len(outdatedTables)).Infof("Migrator found tables to migrate.")
 	}
 	for _, table := range outdatedTables {

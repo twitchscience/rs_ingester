@@ -20,3 +20,7 @@ exec ./metadatastorer \
   -listenerCount="${LISTENER_COUNT}" \
   -rollbarToken="${ROLLBAR_TOKEN}" \
   -rollbarEnvironment="${CLOUD_ENVIRONMENT}" \
+  -bpConfigsBucket="${BP_CONFIGS_BUCKET}" \
+  -bpMetadataConfigsKey="${BP_METADATA_CONFIGS_KEY}" \
+  -bpMetadataReloadFrequency="${BP_METADATA_RELOAD_FREQUENCY}" \
+  -bpMetadataRetryDelay="${BP_METADATA_RETRY_DELAY}" \
