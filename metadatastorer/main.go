@@ -191,13 +191,6 @@ func (i *rdsPipeHandler) Handle(msg *sqs.Message) error {
 		return nil
 	}
 
-	// Call i.GetTables() (distinguish between read table and get tables)
-	// If we don't know about the table, refresh the metadata and add it to tables
-	// If metadata read fails, rollbar error
-	// If we still don't know about the table... error
-	// Add to list of tables we know about
-	// If not load into ace, return nil
-
 	eventPattern := "tsv_files.%s.received"
 	i.Statter.SafeInc(fmt.Sprintf(eventPattern, load.TableName), 1, 1.0)
 	i.Statter.SafeInc(fmt.Sprintf(eventPattern, "total"), 1, 1.0)
