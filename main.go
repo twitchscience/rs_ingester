@@ -80,10 +80,12 @@ func (i *loadWorker) Work(stats monitoring.SafeStatter) {
 		if err != nil {
 			if err.Retryable() {
 				i.MetadataBackend.LoadError(load.UUID, err.Error())
+				logfields.WithError(err).WithField("retryable", err.Retryable()).
+					Warning("Error loading files into table.")
+			} else {
+				logfields.WithError(err).WithField("retryable", err.Retryable()).
+					Error("Error loading files into table.")
 			}
-			logfields.WithError(err).WithField("retryable", err.Retryable()).
-				Error("Error loading files into table.")
-
 			stats.SafeInc("manifest_load.failures", 1, 1.0)
 			continue
 		}
