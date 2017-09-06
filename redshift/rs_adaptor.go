@@ -139,7 +139,10 @@ func (rs *RSConnection) ExecFnInTransaction(work func(*sql.Tx) error) error {
 		}
 		return err
 	}
-	return tx.Commit()
+	if commitErr := tx.Commit(); commitErr != nil {
+		return fmt.Errorf("failed in commit: %v", commitErr)
+	}
+	return nil
 }
 
 // EscapePGString is a poor attempt to escape strings in postgres
