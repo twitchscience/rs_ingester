@@ -125,6 +125,31 @@ func NewPostgresLoader(cfg *PGConfig, lChecker loadChecker, versions versions.Ge
 	return b, nil
 }
 
+//execFnInTransaction takes a closure function of a request and runs it on redshift in a transaction
+func (b *postgresBackend) execFnInTransaction(work func(*sql.Tx) error) error {
+	tx, err := b.db.Begin()
+	if err != nil {
+		return err
+	}
+	err = isolateTransaction(tx)
+	if err != nil {
+		logger.WithError(err).Error("Error setting transaction serializable")
+		return err
+	}
+	err = work(tx)
+	if err != nil {
+		rollbackErr := tx.Rollback()
+		if rollbackErr != nil {
+			logger.WithError(rollbackErr).Error("Could not rollback successfully")
+		}
+		return err
+	}
+	if commitErr := tx.Commit(); commitErr != nil {
+		return fmt.Errorf("failed in commit: %v", commitErr)
+	}
+	return nil
+}
+
 func (b *postgresBackend) checkOrphanedLoads() error {
 	rows, err := b.db.Query(`SELECT uuid FROM manifest WHERE retry_ts IS NULL`)
 	if err != nil {
@@ -176,7 +201,7 @@ func (b *postgresBackend) checkOrphanedLoads() error {
 			}
 
 		case scoop_protocol.LoadNotFound, scoop_protocol.LoadFailed:
-			// If load failed, delete tsv rows
+			// If load failed, mark for retry
 			logger.WithField("orphanUUID", orphanUUID).Info("Orphaned load failed, marking for retry")
 			err = b.loadErrorHelper(tx, orphanUUID, "Orphan load on startup") // loadErrorHelper rolls back on error
 			if err != nil {
@@ -347,54 +372,80 @@ func (b *postgresBackend) loadReadyWorker() {
 	}
 }
 
-// Check for failed loads, and if retriable, returns them to be added to the load queue
-func (b *postgresBackend) fetchFailedLoad() (*LoadManifest, error) {
-	tx, err := b.db.Begin()
+// Returns one failed load
+func (b *postgresBackend) fetchFailedLoadCandidate() (string, string, error) {
+	var loadUUID string
+	var lastError sql.NullString
+	err := b.execFnInTransaction(func(tx *sql.Tx) error {
+		var innerErr error
+		loadUUID, lastError, innerErr = failedLoadMetadata(tx)
+		return innerErr
+	})
 	if err != nil {
-		logger.WithError(err).Error("Error beginning transaction")
-		return nil, err
-	}
-
-	if err = isolateTransaction(tx); err != nil {
-		logger.WithError(err).Error("Error setting transaction serializable")
-		return nil, rollbackAndError(tx, err)
-	}
-
-	loadUUID, lastError, err := failedLoadMetadata(tx)
-	if err != nil {
-		return nil, rollbackAndError(tx, err)
-	}
-	err = tx.Commit()
-	if err != nil {
-		logger.WithError(err).Error("Error on commit when locking manifest load")
-		return nil, err
+		return "", "", err
 	}
 	if loadUUID == "" {
-		return nil, nil
+		return "", "", nil
+	}
+	return loadUUID, lastError.String, nil
+}
+
+// Check for failed loads, marking them as done if they actually succeeded. If retriable, returns
+// them to be added to the load queue
+func (b *postgresBackend) fetchFailedLoad() (*LoadManifest, error) {
+	var loadUUID, lastError string
+	for { // Loop until we find a non-successful failed load, there are no more failed loads, or there was an error
+		var err error
+		loadUUID, lastError, err = b.fetchFailedLoadCandidate()
+		if err != nil {
+			return nil, err
+		}
+		if loadUUID == "" { // no more failed loads
+			return nil, nil
+		}
+
+		tx, err := b.db.Begin()
+		if err != nil {
+			logger.WithError(err).Error("Error beginning transaction")
+			return nil, err
+		}
+		if err = isolateTransaction(tx); err != nil {
+			logger.WithError(err).Error("Error setting transaction serializable")
+			return nil, err
+		}
+		status, err := b.loadChecker.CheckLoad(loadUUID)
+		if err != nil {
+			return nil, err
+		}
+		if status != scoop_protocol.LoadComplete {
+			// found a load that didn't actually fail!
+			break
+		}
+		// This load failed but the commit went through, mark the load as
+		// done and look for more failed loads to retry
+		logger.WithField("loadUUID", loadUUID).
+			WithField("lastError", lastError).
+			Error("failed load was discovered as having succeeded, marking as done") // Can be downgraded to Info once we verify this fixes SCIENG-1663
+		err = b.loadDoneHelper(tx, loadUUID) // rolls back on error
+		if err != nil {
+			return nil, err
+		}
+		err = tx.Commit()
+		if err != nil {
+			return nil, fmt.Errorf("commiting load done: %v", err)
+		}
 	}
 
 	logger.WithField("loadUUID", loadUUID).
-		WithField("error", lastError.String).
+		WithField("error", lastError).
 		Infof("Load failed and has a known error, retrying manifest")
-
-	tx, err = b.db.Begin()
-	if err != nil {
-		logger.WithError(err).Error("Error beginning transaction")
-		return nil, err
-	}
-
-	if err = isolateTransaction(tx); err != nil {
-		logger.WithError(err).Error("Error setting transaction serializable")
-		return nil, rollbackAndError(tx, err)
-	}
-
 	var tsv *LoadManifest
-	tsv, err = getLoadManifest(tx, loadUUID)
-	if err != nil {
-		return nil, rollbackAndError(tx, err)
-	}
-
-	return tsv, tx.Commit()
+	err := b.execFnInTransaction(func(tx *sql.Tx) error {
+		var innerErr error
+		tsv, innerErr = getLoadManifest(tx, loadUUID)
+		return innerErr
+	})
+	return tsv, err
 }
 
 func failedLoadMetadata(tx *sql.Tx) (loadUUID string, lastError sql.NullString, err error) {
