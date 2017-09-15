@@ -1,3 +1,6 @@
+/*
+Package common provides utilities for retrying and working with S3 URLs.
+*/
 package common
 
 import (

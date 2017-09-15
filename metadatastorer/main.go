@@ -81,9 +81,12 @@ func main() {
 	// In cases we get a temporary influx of traffic, want to be resilient.
 	sqs := sqs.New(session, aws.NewConfig().WithMaxRetries(10))
 
+	// Make a deduplication filter for the SQSListeners
+	filter := listener.NewDedupSQSFilter(1000, time.Hour)
+
 	listeners := make([]*listener.SQSListener, listenerCount)
 	for i := 0; i < listenerCount; i++ {
-		listeners[i] = startWorker(sqs, sqsQueueName, stats, postgresBackend)
+		listeners[i] = startWorker(sqs, sqsQueueName, stats, postgresBackend, filter)
 	}
 
 	wait := make(chan struct{})
@@ -112,7 +115,7 @@ func main() {
 	<-wait
 }
 
-func startWorker(sqs sqsiface.SQSAPI, queue string, stats monitoring.SafeStatter, b metadata.Storer) *listener.SQSListener {
+func startWorker(sqs sqsiface.SQSAPI, queue string, stats monitoring.SafeStatter, b metadata.Storer, f listener.SQSFilter) *listener.SQSListener {
 	ret := listener.BuildSQSListener(
 		&rdsPipeHandler{
 			MetadataStorer: b,
@@ -120,7 +123,8 @@ func startWorker(sqs sqsiface.SQSAPI, queue string, stats monitoring.SafeStatter
 			Statter:        stats,
 		},
 		sqsPollWait,
-		sqs)
+		sqs,
+		f)
 	logger.Go(func() { ret.Listen(queue) })
 	return ret
 }

@@ -1,34 +1,61 @@
+/*
+Package listener provides an SQS listener which calls a function on each message.
+After the handler is complete, listener deletes the message.
+*/
 package listener
 
-// Listens to a sqs queue for messages.
-// Similar to Http server listener uses a handler that forks on accept.
-// Once handler is complete listener should delete the message.
-
-// TODO make seperate sqs wrapper for queues
 import (
+	"fmt"
+	"time"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/sqs"
 	"github.com/aws/aws-sdk-go/service/sqs/sqsiface"
-
-	"fmt"
-	"time"
+	"github.com/twitchscience/aws_utils/cache/lru"
+	"github.com/twitchscience/aws_utils/logger"
 )
 
 type SQSHandler interface {
 	Handle(*sqs.Message) error
 }
 
+// SQSFilter will perform a predicate on messages
+type SQSFilter interface {
+	Filter(*sqs.Message) bool
+}
+
+// DedupSQSFilter filters messages if they are a recent duplicate
+type DedupSQSFilter struct {
+	cache *lru.Cache
+}
+
+// Filter will return false to filter out messages if they are a recent duplicate
+func (f *DedupSQSFilter) Filter(msg *sqs.Message) bool {
+	msgBody := aws.StringValue(msg.Body)
+	if !f.cache.Set(msgBody, "") {
+		logger.WithField("message", msgBody).Info("Removing a duplicate")
+		return false
+	}
+	return true
+}
+
+func NewDedupSQSFilter(maxEntries int, lifetime time.Duration) *DedupSQSFilter {
+	return &DedupSQSFilter{cache: lru.New(maxEntries, lifetime)}
+}
+
 type SQSListener struct {
 	Handler SQSHandler
 
+	filter         SQSFilter
 	sqsClient      sqsiface.SQSAPI
 	pollInterval   time.Duration
 	closeRequested chan bool
 	closed         chan bool
 }
 
-func BuildSQSListener(handler SQSHandler, pollInterval time.Duration, client sqsiface.SQSAPI) *SQSListener {
+func BuildSQSListener(handler SQSHandler, pollInterval time.Duration, client sqsiface.SQSAPI, filter SQSFilter) *SQSListener {
 	return &SQSListener{
+		filter:       filter,
 		sqsClient:    client,
 		pollInterval: pollInterval,
 		Handler:      handler,
@@ -41,6 +68,9 @@ func (l *SQSListener) Close() {
 }
 
 func (l *SQSListener) handle(msg *sqs.Message, qURL *string) {
+	if l.filter != nil && !l.filter.Filter(msg) {
+		return
+	}
 	err := l.Handler.Handle(msg)
 	if err != nil {
 		fmt.Printf("SQS Handler returned error: %s\n", err)
