@@ -31,21 +31,27 @@ var context = make(map[string]string)
 
 // Init sets up logging at the given level.
 func Init(level string) {
+	InitLocal(level)
 	logger.Formatter = &logrus.JSONFormatter{
 		TimestampFormat: timestampFormat,
 	}
+	context["env"] = getEnv("CLOUD_ENVIRONMENT", "local")
+	context["pid"] = strconv.Itoa(os.Getpid())
+	var err error
+	context["host"], err = os.Hostname()
+	if err != nil {
+		context["host"] = getEnv("HOST", "localhost")
+	}
+}
+
+// InitLocal sets up logging at the given level for local consumption.
+func InitLocal(level string) {
 	l, err := logrus.ParseLevel(level)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to setup logging: %v\n", err)
 		os.Exit(1)
 	}
 	logger.Level = l
-	context["env"] = getEnv("CLOUD_ENVIRONMENT", "local")
-	context["pid"] = strconv.Itoa(os.Getpid())
-	context["host"], err = os.Hostname()
-	if err != nil {
-		context["host"] = getEnv("HOST", "localhost")
-	}
 }
 
 // InitWithRollbar sets up logging at the given level, and sends log message of

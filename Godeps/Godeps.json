@@ -224,15 +224,15 @@
 		},
 		{
 			"ImportPath": "github.com/twitchscience/aws_utils/common",
-			"Rev": "e8a7b563ba4c5ab5b98d7904624a48b584d1e400"
+			"Rev": "e34cc0edd47deb0701bd37b4db39420bdaabdb29"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/aws_utils/listener",
-			"Rev": "e8a7b563ba4c5ab5b98d7904624a48b584d1e400"
+			"Rev": "e34cc0edd47deb0701bd37b4db39420bdaabdb29"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/aws_utils/logger",
-			"Rev": "e8a7b563ba4c5ab5b98d7904624a48b584d1e400"
+			"Rev": "e34cc0edd47deb0701bd37b4db39420bdaabdb29"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/scoop_protocol/msg_signer",
@@ -265,6 +265,14 @@
 			"ImportPath": "gopkg.in/DATA-DOG/go-sqlmock.v1",
 			"Comment": "v1.2.0",
 			"Rev": "b983233bc0bbea4dc6e8ec8c8c923d935765ffec"
+		},
+		{
+			"ImportPath": "github.com/twitchscience/aws_utils/cache/lru",
+			"Rev": "e34cc0edd47deb0701bd37b4db39420bdaabdb29"
+		},
+		{
+			"ImportPath": "golang.org/x/crypto/ssh/terminal",
+			"Rev": "faadfbdc035307d901e69eea569f5dda451a3ee3"
 		}
 	]
 }
