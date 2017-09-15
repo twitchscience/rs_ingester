@@ -224,15 +224,15 @@
 		},
 		{
 			"ImportPath": "github.com/twitchscience/aws_utils/common",
-			"Rev": "3b8e9d8f5d21e3c1d09a3f59a02bf4b559cd3a11"
+			"Rev": "e34cc0edd47deb0701bd37b4db39420bdaabdb29"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/aws_utils/listener",
-			"Rev": "3b8e9d8f5d21e3c1d09a3f59a02bf4b559cd3a11"
+			"Rev": "e34cc0edd47deb0701bd37b4db39420bdaabdb29"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/aws_utils/logger",
-			"Rev": "3b8e9d8f5d21e3c1d09a3f59a02bf4b559cd3a11"
+			"Rev": "e34cc0edd47deb0701bd37b4db39420bdaabdb29"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/scoop_protocol/msg_signer",
@@ -268,7 +268,7 @@
 		},
 		{
 			"ImportPath": "github.com/twitchscience/aws_utils/cache/lru",
-			"Rev": "3b8e9d8f5d21e3c1d09a3f59a02bf4b559cd3a11"
+			"Rev": "e34cc0edd47deb0701bd37b4db39420bdaabdb29"
 		},
 		{
 			"ImportPath": "golang.org/x/crypto/ssh/terminal",

@@ -53,7 +53,7 @@ func newWithTimeFunction(maxEntries int, lifetime time.Duration, currentTime fun
 }
 
 // Set adds the provided key and value to the cache, evicting
-// an old item if necessary.  Returns if already exists in cache.
+// an old item if necessary.  Returns true if item as added to cache.
 func (c *Cache) Set(key, value string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -65,7 +65,7 @@ func (c *Cache) Set(key, value string) bool {
 		ent := ee.Value.(*entry)
 		ent.value = value
 		ent.expiration = c.newExpiration()
-		return true
+		return false
 	}
 
 	// If not present, add to cache and queue
@@ -75,7 +75,7 @@ func (c *Cache) Set(key, value string) bool {
 	if c.ll.Len() > c.maxEntries {
 		c.removeOldest()
 	}
-	return false
+	return true
 }
 
 // Get fetches the key's value from the cache.
