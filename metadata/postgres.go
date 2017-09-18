@@ -176,46 +176,30 @@ func (b *postgresBackend) checkOrphanedLoads() error {
 	for _, orphanUUID := range orphanUUIDs {
 		loadStatus, err := b.loadChecker.CheckLoad(orphanUUID)
 		if err != nil {
-			logger.WithError(err).Error("Got error checking orphan load status")
-			return err
+			return fmt.Errorf("checking orphaned load status: %s", err)
 		}
 
-		tx, err := b.db.Begin()
-		if err != nil {
-			logger.WithError(err).Error("Error beginning transaction")
-			return err
-		}
+		err = b.execFnInTransaction(func(tx *sql.Tx) error {
+			var innerErr error
+			switch loadStatus {
+			case scoop_protocol.LoadComplete:
+				// If completed succesfully, delete tsv rows
+				logger.WithField("orphanUUID", orphanUUID).Info("Orphaned load is complete, marking done")
+				innerErr = b.loadDoneHelper(tx, orphanUUID)
 
-		if err = isolateTransaction(tx); err != nil {
-			logger.WithError(err).Error("Error setting transaction serializable")
-			return rollbackAndError(tx, err)
-		}
+			case scoop_protocol.LoadNotFound, scoop_protocol.LoadFailed:
+				// If load failed, mark for retry
+				logger.WithField("orphanUUID", orphanUUID).Info("Orphaned load failed, marking for retry")
+				innerErr = b.loadErrorHelper(tx, orphanUUID, "Orphan load on startup")
 
-		switch loadStatus {
-		case scoop_protocol.LoadComplete:
-			// If completed succesfully, delete tsv rows
-			logger.WithField("orphanUUID", orphanUUID).Info("Orphaned load is complete, marking done")
-			err = b.loadDoneHelper(tx, orphanUUID) // loadDoneHelper rolls back on error
-			if err != nil {
-				return err
+			default:
+				logger.WithField("orphanUUID", orphanUUID).WithField("loadStatus", loadStatus).Error(
+					"Got unexpected load status from orphan load check")
+				return fmt.Errorf("unexpected load status from orphan load check: %s", loadStatus)
 			}
-
-		case scoop_protocol.LoadNotFound, scoop_protocol.LoadFailed:
-			// If load failed, mark for retry
-			logger.WithField("orphanUUID", orphanUUID).Info("Orphaned load failed, marking for retry")
-			err = b.loadErrorHelper(tx, orphanUUID, "Orphan load on startup") // loadErrorHelper rolls back on error
-			if err != nil {
-				return err
-			}
-
-		default:
-			logger.WithField("loadStatus", loadStatus).Error("Got unexpected load status from orphan load check")
-			return fmt.Errorf("Got unexpected load status from orphan load check: %s", loadStatus)
-		}
-
-		err = tx.Commit()
+			return innerErr
+		})
 		if err != nil {
-			logger.WithField("orphanUUID", orphanUUID).WithError(err).Error("Error on commit when after dealing with orphan load")
 			return err
 		}
 	}
@@ -293,19 +277,15 @@ func (b *postgresBackend) Close() {
 	}
 }
 
-// Non-commiting load done helper function
+// Non-committing load done helper function
 func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUUID string) error {
 	_, err := tx.Exec("DELETE FROM tsv WHERE manifest_uuid = $1", manifestUUID)
 	if err != nil {
-		return rollbackAndError(tx, err)
+		return err
 	}
 
 	_, err = tx.Exec("DELETE FROM manifest WHERE uuid = $1", manifestUUID)
-	if err != nil {
-		return rollbackAndError(tx, err)
-	}
-
-	return nil
+	return err
 }
 
 func (b *postgresBackend) loadErrorHelper(tx *sql.Tx, manifestUUID, loadError string) error {
@@ -313,11 +293,7 @@ func (b *postgresBackend) loadErrorHelper(tx *sql.Tx, manifestUUID, loadError st
 		time.Now().In(time.UTC).Add(errorRetryDelay),
 		loadError,
 		manifestUUID)
-	if err != nil {
-		return rollbackAndError(tx, err)
-	}
-
-	return nil
+	return err
 }
 
 func (b *postgresBackend) loadReadyWorker() {
@@ -404,35 +380,34 @@ func (b *postgresBackend) fetchFailedLoad() (*LoadManifest, error) {
 			return nil, nil
 		}
 
-		tx, err := b.db.Begin()
+		var status scoop_protocol.LoadStatus
+		err = b.execFnInTransaction(func(tx *sql.Tx) error {
+			var innerErr error
+			status, innerErr = b.loadChecker.CheckLoad(loadUUID)
+			if innerErr != nil {
+				return fmt.Errorf("checking load: %s", innerErr)
+			}
+			if status != scoop_protocol.LoadComplete {
+				return nil
+			}
+			// This load failed but the commit went through, mark the load as
+			// done and look for more failed loads to retry
+			logger.WithField("loadUUID", loadUUID).
+				WithField("lastError", lastError).
+				Error("failed load was discovered as having succeeded, marking as done") // Can be downgraded to Info once we verify this fixes SCIENG-1663
+			innerErr = b.loadDoneHelper(tx, loadUUID)
+			if innerErr != nil {
+				return fmt.Errorf("load done helper: %s", innerErr)
+			}
+			return nil
+		})
 		if err != nil {
-			logger.WithError(err).Error("Error beginning transaction")
 			return nil, err
 		}
-		if err = isolateTransaction(tx); err != nil {
-			logger.WithError(err).Error("Error setting transaction serializable")
-			return nil, err
-		}
-		status, err := b.loadChecker.CheckLoad(loadUUID)
-		if err != nil {
-			return nil, err
-		}
+
 		if status != scoop_protocol.LoadComplete {
 			// found a load that didn't actually fail!
 			break
-		}
-		// This load failed but the commit went through, mark the load as
-		// done and look for more failed loads to retry
-		logger.WithField("loadUUID", loadUUID).
-			WithField("lastError", lastError).
-			Error("failed load was discovered as having succeeded, marking as done") // Can be downgraded to Info once we verify this fixes SCIENG-1663
-		err = b.loadDoneHelper(tx, loadUUID) // rolls back on error
-		if err != nil {
-			return nil, err
-		}
-		err = tx.Commit()
-		if err != nil {
-			return nil, fmt.Errorf("commiting load done: %v", err)
 		}
 	}
 
@@ -690,23 +665,28 @@ func retryInTransaction(retryCount int, db *sql.DB, f func(tx *sql.Tx) error) er
 	return retrying(retryCount, func() error {
 		tx, err := db.Begin()
 		if err != nil {
-			logger.WithError(err).Error("Error beginning transaction")
+			logger.WithError(err).Warning("Error beginning transaction")
 			return err
 		}
 
 		if err = isolateTransaction(tx); err != nil {
-			logger.WithError(err).Error("Error setting transaction serializable")
+			logger.WithError(err).Warning("Error setting transaction serializable")
 			return err
 		}
 
 		err = f(tx)
 
 		if err != nil {
-			logger.WithError(err).Error("Error in transaction")
+			logger.WithError(err).Warning("Error in transaction")
 			return rollbackAndError(tx, err)
 		}
 
-		return tx.Commit()
+		err = tx.Commit()
+		if err != nil {
+			logger.WithError(err).Warning("Error in commit")
+			return rollbackAndError(tx, err)
+		}
+		return err
 	})
 }
 
