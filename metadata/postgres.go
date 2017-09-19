@@ -837,3 +837,29 @@ func (b *postgresBackend) StatsForPendingLoads() ([]*PendingLoadStats, error) {
 	pendingLoadStats := []*PendingLoadStats{inQueueStats, staleStats, pendingMigrationStats}
 	return pendingLoadStats, nil
 }
+
+// ListDistinctTables returns all the tables in tsv
+func (b *postgresBackend) ListDistinctTables() ([]string, error) {
+	rows, err := b.db.Query("SELECT DISTINCT tablename FROM tsv")
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %v", err)
+	}
+	defer func() {
+		err = rows.Close()
+		if err != nil {
+			logger.WithError(err).Error("error closing rows")
+		}
+	}()
+
+	var table string
+	var distinctTables []string
+
+	for rows.Next() {
+		err = rows.Scan(&table)
+		if err != nil {
+			return nil, fmt.Errorf("error scanning event rows: %v", err)
+		}
+		distinctTables = append(distinctTables, table)
+	}
+	return distinctTables, nil
+}
