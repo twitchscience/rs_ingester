@@ -68,23 +68,23 @@ func (l *SQSListener) Close() {
 }
 
 func (l *SQSListener) handle(msg *sqs.Message, qURL *string) {
-	if l.filter != nil && !l.filter.Filter(msg) {
-		return
-	}
-	err := l.Handler.Handle(msg)
-	if err != nil {
-		fmt.Printf("SQS Handler returned error: %s\n", err)
-
-		_, err = l.sqsClient.ChangeMessageVisibility(&sqs.ChangeMessageVisibilityInput{
-			QueueUrl:          qURL,
-			ReceiptHandle:     msg.ReceiptHandle,
-			VisibilityTimeout: aws.Int64(10), // seconds
-		})
-
+	var err error
+	if l.filter == nil || l.filter.Filter(msg) {
+		err = l.Handler.Handle(msg)
 		if err != nil {
-			fmt.Printf("Error setting message visibility: %s\n", err)
+			fmt.Printf("SQS Handler returned error: %s\n", err)
+
+			_, err = l.sqsClient.ChangeMessageVisibility(&sqs.ChangeMessageVisibilityInput{
+				QueueUrl:          qURL,
+				ReceiptHandle:     msg.ReceiptHandle,
+				VisibilityTimeout: aws.Int64(10), // seconds
+			})
+
+			if err != nil {
+				fmt.Printf("Error setting message visibility: %s\n", err)
+			}
+			return
 		}
-		return
 	}
 
 	_, err = l.sqsClient.DeleteMessage(&sqs.DeleteMessageInput{
