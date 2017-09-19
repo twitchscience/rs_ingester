@@ -99,7 +99,7 @@ func main() {
 	}
 	logger.Go(bpMetadataLoader.Crank)
 
-	// In cases we get a temporary influx of traffic, want to be resilient.
+	// in cases we get a temporary influx of traffic, want to be resilient.
 	sqs := sqs.New(session, aws.NewConfig().WithMaxRetries(10))
 
 	// Make a deduplication filter for the SQSListeners
