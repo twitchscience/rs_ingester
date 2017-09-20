@@ -89,6 +89,10 @@ func InitWithRollbar(level, rollbarToken, rollbarEnv string) {
 	}
 }
 
+func AddContext(key, value string) {
+	context[key] = value
+}
+
 // getEnv returns the given environment variable or the default if it is undefined.
 func getEnv(name, deflt string) string {
 	if val, ok := os.LookupEnv(name); ok {

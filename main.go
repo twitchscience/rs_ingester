@@ -149,6 +149,7 @@ func main() {
 
 	logger.InitWithRollbar("info", rollbarToken, rollbarEnvironment)
 	logger.CaptureDefault()
+	logger.AddContext("application", "rsloadmanager")
 	logger.Info("starting")
 	defer logger.LogPanic()
 
