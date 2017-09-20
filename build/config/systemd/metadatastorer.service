@@ -1,7 +1,7 @@
 # Systemd service at /etc/systemd/system/rsloadmanager.service
 
 [Unit]
-After=cloud-final.service
+After=cloud-final.service journald-cloudwatch-logs.service
 Wants=cloud-final.service
 StartLimitInterval=0
 
