@@ -70,6 +70,7 @@ func main() {
 	flag.Parse()
 
 	logger.InitWithRollbar("info", rollbarToken, rollbarEnvironment)
+	logger.AddContext("application", "metadatastorer")
 	defer logger.LogPanic()
 
 	stats, err := monitoring.InitStats(statsPrefix)
