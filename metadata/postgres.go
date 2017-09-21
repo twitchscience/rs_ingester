@@ -394,7 +394,7 @@ func (b *postgresBackend) fetchFailedLoad() (*LoadManifest, error) {
 			// done and look for more failed loads to retry
 			logger.WithField("loadUUID", loadUUID).
 				WithField("lastError", lastError).
-				Error("failed load was discovered as having succeeded, marking as done") // Can be downgraded to Info once we verify this fixes SCIENG-1663
+				Warning("failed load was discovered as having succeeded, marking as done")
 			innerErr = b.loadDoneHelper(tx, loadUUID)
 			if innerErr != nil {
 				return fmt.Errorf("load done helper: %s", innerErr)

@@ -220,7 +220,7 @@ func main() {
 
 	wait := make(chan struct{})
 	sigc := make(chan os.Signal, 1)
-	signal.Notify(sigc, syscall.SIGINT)
+	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
 	logger.Info("Loader is set up")
 	logger.Go(func() {
 		<-sigc

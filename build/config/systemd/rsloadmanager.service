@@ -1,0 +1,15 @@
+# Systemd service at /etc/systemd/system/rsloadmanager.service
+
+[Unit]
+After=cloud-final.service journald-cloudwatch-logs.service
+Wants=cloud-final.service journald-cloudwatch-logs.service
+StartLimitInterval=0
+
+[Service]
+ExecStart=/opt/science/rs_ingester/bin/run_rsloadmanager.sh
+Restart=always
+RestartSec=5
+TimeoutStopSec=600
+
+[Install]
+WantedBy=cloud-init.target

@@ -62,8 +62,13 @@
     },
     {
       "type": "file",
-      "source": "build/config/upstart",
+      "source": "build/config/systemd",
       "destination": "/opt/science/{{user `project`}}"
+    },
+    {
+      "type": "file",
+      "source": "build/config/journald-cloudwatch-logs.conf",
+      "destination": "/opt/science/{{user `project`}}/journald-cloudwatch-logs.conf"
     },
     {
       "type": "file",
@@ -81,11 +86,6 @@
       "destination": "/opt/science/{{user `project`}}/ace_init.sql"
     },
     {
-      "type": "file",
-      "source": "build/config/cloudwatchlogs.conf.template",
-      "destination": "/opt/science/{{user `project`}}/cloudwatchlogs.conf.template"
-    },
-    {
       "type": "shell",
       "inline":
       [
@@ -95,7 +95,13 @@
         "sudo ln -s /opt/science/{{user `project`}}/nginx.conf /etc/nginx/sites-enabled/{{user `project`}}",
 
         "sudo chmod +x /opt/science/{{user `project`}}/bin/*",
-        "for f in /opt/science/{{user `project`}}/upstart/*.conf; do sudo ln -s $f /etc/init/$(basename $f); done"
+
+        "echo -- [configuring systemd and logging] --",
+        "sudo mv /opt/science/{{user `project`}}/systemd/rsloadmanager.service /etc/systemd/system/rsloadmanager.service",
+        "sudo mv /opt/science/{{user `project`}}/systemd/metadatastorer.service /etc/systemd/system/metadatastorer.service",
+        "sudo systemctl enable metadatastorer",
+        "sudo systemctl enable rsloadmanager",
+        "sudo mv /opt/science/{{user `project`}}/journald-cloudwatch-logs.conf /etc/journald-cloudwatch-logs.conf"
       ]
     }
   ]
