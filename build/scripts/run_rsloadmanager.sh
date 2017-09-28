@@ -9,6 +9,7 @@ NO_WORK_DELAY="1m"  # Overidable in conf.sh
 export AWS_REGION=us-west-2
 export AWS_DEFAULT_REGION=$AWS_REGION # aws-cli uses AWS_DEFAULT_REGION, aws-sdk-go uses AWS_REGION
 aws s3 cp "$CONFIG_PREFIX/conf.sh" conf.sh
+aws s3 cp "$CONFIG_PREFIX/conf.json" conf.json
 source conf.sh
 
 exec ./rsloadmanager \
@@ -22,7 +23,6 @@ exec ./rsloadmanager \
   -migratorPollPeriod="${MIGRATOR_POLL_PERIOD}" \
   -waitProcessorPeriod="${WAIT_PROCESSOR_PERIOD}" \
   -blueprint_host="${BLUEPRINT_HOST}" \
-  -rsURL="${RS_URL}" \
   -rollbarToken="${ROLLBAR_TOKEN}" \
   -rollbarEnvironment="${CLOUD_ENVIRONMENT}" \
   -offpeakStartHour="${OFFPEAK_START_HOUR}" \
@@ -30,3 +30,4 @@ exec ./rsloadmanager \
   -onpeakMigrationTimeoutMs="${ONPEAK_MIGRATION_TIMEOUT_MILLISECONDS}" \
   -offpeakMigrationTimeoutMs="${OFFPEAK_MIGRATION_TIMEOUT_MILLISECONDS}" \
   -reporterPollPeriod="${REPORTER_POLL_PERIOD}" \
+  -config=conf.json \

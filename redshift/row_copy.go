@@ -14,7 +14,7 @@ import (
 
 const (
 	// need to provide creds, and lib/pq barfs on paramater insertion in copy commands
-	copyCommand             = `COPY %s FROM %s WITH CREDENTIALS '%s' %s`
+	copyCommand             = `COPY %s.%s FROM %s WITH CREDENTIALS '%s' %s`
 	copyCommandSearch       = `COPY %% FROM '%s' %%`
 	credentialExpiryTimeout = 2 * time.Minute
 )
@@ -41,6 +41,7 @@ var (
 //ManifestRowCopyRequest is the redshift package's represntation of the manifest row copy object for a manifest row copy
 type ManifestRowCopyRequest struct {
 	BuiltOn     time.Time
+	Schema      string
 	Name        string
 	ManifestURL string
 	Credentials string
@@ -55,7 +56,7 @@ func (r ManifestRowCopyRequest) TxExec(t *sql.Tx) error {
 		return fmt.Errorf("Name contains a null byte")
 	}
 
-	query := fmt.Sprintf(copyCommand, pq.QuoteIdentifier(r.Name),
+	query := fmt.Sprintf(copyCommand, pq.QuoteIdentifier(r.Schema), pq.QuoteIdentifier(r.Name),
 		EscapePGString(r.ManifestURL), r.Credentials, manifestImportOptions)
 
 	_, err := t.Exec(query)

@@ -11,8 +11,10 @@ instance.
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -47,7 +49,6 @@ var (
 	poolSize                  int
 	statsPrefix               string
 	manifestBucket            string
-	rsURL                     string
 	rollbarToken              string
 	rollbarEnvironment        string
 	blueprintHost             string
@@ -61,6 +62,7 @@ var (
 	offpeakDurationHours      int
 	onpeakMigrationTimeoutMs  int
 	offpeakMigrationTimeoutMs int
+	configFilename            string
 )
 
 type loadWorker struct {
@@ -129,13 +131,31 @@ func init() {
 	flag.IntVar(&loadAgeSeconds, "loadAgeSeconds", 1800, "Max age of tsvs in queue before a load into redshift is triggered")
 	flag.IntVar(&poolSize, "n_workers", 5, "Number of load workers and therefore redshift connections. Set to 0 to turn off ingests (COPYs).")
 	flag.StringVar(&blueprintHost, "blueprint_host", "", "Host name (and optionally :port) for communicating with blueprint")
-	flag.StringVar(&rsURL, "rsURL", "", "URL for Redshift")
 	flag.StringVar(&rollbarToken, "rollbarToken", "", "Rollbar post_server_item token")
 	flag.StringVar(&rollbarEnvironment, "rollbarEnvironment", "", "Rollbar environment")
 	flag.IntVar(&offpeakStartHour, "offpeakStartHour", 3, "Hour that offpeak period starts and migrations can happen, in UTC")
 	flag.IntVar(&offpeakDurationHours, "offpeakDurationHours", 8, "Duration of the offpeak migration period, in hours")
 	flag.IntVar(&onpeakMigrationTimeoutMs, "onpeakMigrationTimeoutMs", 600000, "Timeout of a migration forced on-peak")
 	flag.IntVar(&offpeakMigrationTimeoutMs, "offpeakMigrationTimeoutMs", 10800000, "Timeout of a migration off-peak")
+	flag.StringVar(&configFilename, "config", "", "JSON config filename")
+}
+
+type config struct {
+	Redshift backend.Config `json:"redshift"`
+}
+
+func loadConfig(filename string) (*config, error) {
+	configJSON, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	var conf config
+	if err := json.Unmarshal(configJSON, &conf); err != nil {
+		return nil, err
+	}
+
+	return &conf, nil
 }
 
 func main() {
@@ -152,13 +172,18 @@ func main() {
 	logger.Info("starting")
 	defer logger.LogPanic()
 
+	conf, err := loadConfig(configFilename)
+	if err != nil {
+		logger.WithError(err).Fatal("Failed loading config")
+	}
+
 	session, err := session.NewSession()
 	if err != nil {
 		logger.WithError(err).Fatal("Failed to setup aws session")
 	}
 
 	s3Uploader := s3manager.NewUploader(session)
-	aceBackend, err := backend.BuildRedshiftBackend(session.Config.Credentials, poolSize+healthCheckPoolSize, rsURL)
+	aceBackend, err := backend.BuildRedshiftBackend(session.Config.Credentials, poolSize+healthCheckPoolSize, &conf.Redshift)
 	if err != nil {
 		logger.WithError(err).Fatal("Failed to setup redshift connection")
 	}

@@ -29,15 +29,22 @@ var (
 
 //RedshiftBackend is the struct that holds the RSConnection pool and where backend operations are done from
 type RedshiftBackend struct {
-	connection  *redshift.RSConnection
-	credentials *credentials.Credentials
-	tableLocks  map[string]*sync.Mutex
-	lockLock    *sync.Mutex
+	connection     *redshift.RSConnection
+	credentials    *credentials.Credentials
+	tableLocks     map[string]*sync.Mutex
+	lockLock       *sync.Mutex
+	physicalSchema string
+}
+
+// Config is used to configure the behavior of the RedshiftBackend
+type Config struct {
+	PhyiscalSchema string `json:"physicalSchema"`
+	URL            string `json:"url"`
 }
 
 //BuildRedshiftBackend builds a new redshift backend by also creating a new rsConnection
-func BuildRedshiftBackend(credentials *credentials.Credentials, poolSize int, rsURL string) (*RedshiftBackend, error) {
-	conn, err := redshift.BuildRSConnection(rsURL, poolSize)
+func BuildRedshiftBackend(credentials *credentials.Credentials, poolSize int, config *Config) (*RedshiftBackend, error) {
+	conn, err := redshift.BuildRSConnection(config.URL, poolSize)
 	if err != nil {
 		return nil, err
 	}
@@ -45,10 +52,11 @@ func BuildRedshiftBackend(credentials *credentials.Credentials, poolSize int, rs
 		go conn.Listen()
 	}
 	return &RedshiftBackend{
-		connection:  conn,
-		credentials: credentials,
-		tableLocks:  make(map[string]*sync.Mutex),
-		lockLock:    &sync.Mutex{},
+		connection:     conn,
+		credentials:    credentials,
+		tableLocks:     make(map[string]*sync.Mutex),
+		lockLock:       &sync.Mutex{},
+		physicalSchema: config.PhyiscalSchema,
 	}, nil
 }
 
@@ -66,6 +74,7 @@ func (r *RedshiftBackend) ManifestCopy(rc *scoop_protocol.ManifestRowCopyRequest
 
 	return r.connection.ExecFnInTransaction(redshift.ManifestRowCopyRequest{
 		BuiltOn:     time.Now(),
+		Schema:      r.physicalSchema,
 		Name:        rc.TableName,
 		ManifestURL: rc.ManifestURL,
 		Credentials: redshift.CopyCredentials(r.credentials),
@@ -160,20 +169,21 @@ func expectVersion(tx *sql.Tx, table string, version int) error {
 
 //applyOperation applies a single operation to a table given a transaction (no
 //rollback or commit)
-func applyOperation(op scoop_protocol.Operation, table string, tx *sql.Tx) error {
+func applyOperation(op scoop_protocol.Operation, quotedSchema string, quotedTable string, tx *sql.Tx) error {
 	var err error
 	switch op.Action {
 	case scoop_protocol.ADD:
 		mStep := migrationStep(op)
-		query := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s", pq.QuoteIdentifier(table), mStep.getCreationForm())
+		query := fmt.Sprintf("ALTER TABLE %s.%s ADD COLUMN %s",
+			quotedSchema, quotedTable, mStep.getCreationForm())
 		_, err = tx.Exec(query)
 	case scoop_protocol.DELETE:
-		query := fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s CASCADE", pq.QuoteIdentifier(table), pq.QuoteIdentifier(op.Name))
+		query := fmt.Sprintf("ALTER TABLE %s.%s DROP COLUMN %s CASCADE",
+			quotedSchema, quotedTable, pq.QuoteIdentifier(op.Name))
 		_, err = tx.Exec(query)
 	case scoop_protocol.RENAME:
-		query := fmt.Sprintf("ALTER TABLE %s RENAME COLUMN %s TO %s",
-			pq.QuoteIdentifier(table),
-			pq.QuoteIdentifier(op.Name),
+		query := fmt.Sprintf("ALTER TABLE %s.%s RENAME COLUMN %s TO %s",
+			quotedSchema, quotedTable, pq.QuoteIdentifier(op.Name),
 			pq.QuoteIdentifier(op.ActionMetadata["new_outbound"]),
 		)
 		_, err = tx.Exec(query)
@@ -204,7 +214,7 @@ func (r *RedshiftBackend) ApplyOperations(table string, ops []scoop_protocol.Ope
 			return fmt.Errorf("Error setting timeout: %v", err)
 		}
 		for _, op := range ops {
-			err = applyOperation(op, table, tx)
+			err = applyOperation(op, pq.QuoteIdentifier(r.physicalSchema), pq.QuoteIdentifier(table), tx)
 			if err != nil {
 				return err
 			}
@@ -262,7 +272,8 @@ func (r *RedshiftBackend) CreateTable(table string, ops []scoop_protocol.Operati
 		return err
 	}
 	return r.connection.ExecFnInTransaction(func(tx *sql.Tx) error {
-		query := fmt.Sprintf(`CREATE TABLE %s%s;`, pq.QuoteIdentifier(table), newTable.getColumnCreationString())
+		query := fmt.Sprintf(`CREATE TABLE %s.%s%s;`, pq.QuoteIdentifier(r.physicalSchema),
+			pq.QuoteIdentifier(table), newTable.getColumnCreationString())
 		_, err = tx.Exec(query)
 		if err != nil {
 			return fmt.Errorf("Error CREATEing TABLE %s: %v", table, err)
@@ -276,19 +287,19 @@ func (r *RedshiftBackend) CreateTable(table string, ops []scoop_protocol.Operati
 	})
 }
 
-// TableExists returns whether the given table exists in the logs schema.
+// TableExists returns whether the given table exists in the physical schema.
 func (r *RedshiftBackend) TableExists(table string) (bool, error) {
 	query := `SELECT EXISTS (
 		SELECT 1
 		FROM pg_catalog.pg_class
 		JOIN pg_catalog.pg_namespace
 			ON pg_namespace.oid = pg_class.relnamespace
-		WHERE pg_namespace.nspname = 'logs'
-			AND pg_class.relname = $1
+		WHERE pg_namespace.nspname = $1
+			AND pg_class.relname = $2
 			AND pg_class.relkind = 'r'    -- ordinary table
 	)`
 	var exists bool
-	err := r.connection.Conn.QueryRow(query, table).Scan(&exists)
+	err := r.connection.Conn.QueryRow(query, r.physicalSchema, table).Scan(&exists)
 	switch {
 	case err != nil:
 		return false, fmt.Errorf("error querying whether table exists: %v", err)
@@ -309,16 +320,17 @@ func (r *RedshiftBackend) getTableLock(table string) *sync.Mutex {
 	return lock
 }
 
-// TableLocked returns whether the given table exists in the logs schema.
+// TableLocked returns whether the given table has any locks on it.
 func (r *RedshiftBackend) TableLocked(table string) (bool, error) {
 	query := `SELECT EXISTS (
 		SELECT 1
 		FROM pg_locks l JOIN pg_stat_all_tables t
 			ON l.relation = t.relid
-		WHERE t.relname = $1
+		WHERE t.schemaname = $1
+		AND t.relname = $2
 	)`
 	var exists bool
-	err := r.connection.Conn.QueryRow(query, table).Scan(&exists)
+	err := r.connection.Conn.QueryRow(query, r.physicalSchema, table).Scan(&exists)
 	switch {
 	case err != nil:
 		return false, fmt.Errorf("error querying whether %s table is locked: %v", table, err)
