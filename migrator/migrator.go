@@ -112,7 +112,8 @@ func (m *Migrator) isOldVersionCleared(table string, version int) (bool, error) 
 }
 
 func (m *Migrator) migrate(table string, to int, isOffPeak bool) error {
-	ops, err := m.bpClient.GetMigration(table, to)
+	logger.WithField("table", table).WithField("to_version", to).Info("Beginning migration")
+	ops, cols, err := m.bpClient.GetMigration(table, to)
 	if err != nil {
 		return err
 	}
@@ -120,8 +121,9 @@ func (m *Migrator) migrate(table string, to int, isOffPeak bool) error {
 	if err != nil {
 		return err
 	}
+	hasViewColumn := m.aceBackend.HasViewColumn(cols)
 	if !exists {
-		err = m.aceBackend.CreateTable(table, ops, to)
+		err = m.aceBackend.CreateTable(table, ops, hasViewColumn, to)
 		if err != nil {
 			return err
 		}
@@ -162,7 +164,7 @@ func (m *Migrator) migrate(table string, to int, isOffPeak bool) error {
 		if isOffPeak {
 			timeoutMs = m.offpeakMigrationTimeoutMs
 		}
-		err = m.aceBackend.ApplyOperations(table, ops, to, timeoutMs)
+		err = m.aceBackend.ApplyOperations(table, ops, hasViewColumn, to, timeoutMs)
 		if err != nil {
 			return fmt.Errorf("Error applying operations to %s: %v", table, err)
 		}
@@ -204,7 +206,7 @@ func (m *Migrator) incrementVersion(verInc VersionIncrement) {
 		verInc.Response <- fmt.Errorf(
 			"attempted to increment version of table that exists: %s", verInc.Table)
 	default:
-		err = m.aceBackend.ApplyOperations(verInc.Table, nil, verInc.Version, m.offpeakMigrationTimeoutMs)
+		err = m.aceBackend.ApplyOperations(verInc.Table, nil, false, verInc.Version, m.offpeakMigrationTimeoutMs)
 		if err == nil {
 			logger.Infof("Incremented table %s to version %d",
 				verInc.Table, verInc.Version)

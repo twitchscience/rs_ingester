@@ -34,11 +34,17 @@ type RedshiftBackend struct {
 	tableLocks     map[string]*sync.Mutex
 	lockLock       *sync.Mutex
 	physicalSchema string
+	viewSchema     string
+	viewColumn     string
+	viewFilter     string
 }
 
 // Config is used to configure the behavior of the RedshiftBackend
 type Config struct {
 	PhyiscalSchema string `json:"physicalSchema"`
+	ViewSchema     string `json:"viewSchema"`
+	ViewColumn     string `json:"viewColumn"`
+	ViewFilter     string `json:"viewFilter"`
 	URL            string `json:"url"`
 }
 
@@ -57,6 +63,9 @@ func BuildRedshiftBackend(credentials *credentials.Credentials, poolSize int, co
 		tableLocks:     make(map[string]*sync.Mutex),
 		lockLock:       &sync.Mutex{},
 		physicalSchema: config.PhyiscalSchema,
+		viewSchema:     config.ViewSchema,
+		viewColumn:     config.ViewColumn,
+		viewFilter:     config.ViewFilter,
 	}, nil
 }
 
@@ -96,7 +105,7 @@ func (r *RedshiftBackend) TableVersions() (map[string]int, error) {
 	versions := make(map[string]int)
 	rows, err := r.connection.Conn.Query(`SELECT name, MAX(version) FROM infra.table_version GROUP BY name;`)
 	if err != nil {
-		return nil, fmt.Errorf("Error SELECTing the table versions from ace's infra.table_version: %v", err)
+		return nil, fmt.Errorf("SELECTing the table versions from ace's infra.table_version: %v", err)
 	}
 	defer func() {
 		err = rows.Close()
@@ -158,7 +167,7 @@ func expectVersion(tx *sql.Tx, table string, version int) error {
 		}
 		return fmt.Errorf("expected version %d for table %s, but table doesn't exist in infra.table_version", version, table)
 	case err != nil:
-		return fmt.Errorf("error finding table version from ace: %v", err)
+		return fmt.Errorf("finding table version from ace: %v", err)
 	default:
 		if readVersion != version {
 			return fmt.Errorf("expected version %d for table %s, but got version %d in infra.table_version", version, table, readVersion)
@@ -191,17 +200,19 @@ func applyOperation(op scoop_protocol.Operation, quotedSchema string, quotedTabl
 	case scoop_protocol.DROP_EVENT:
 	case scoop_protocol.CANCEL_DROP_EVENT:
 	default:
-		err = fmt.Errorf("Unexpected operation action: %s", op.Action)
+		err = fmt.Errorf("unexpected operation action: %s", op.Action)
 	}
 	return err
 }
 
 //ApplyOperations applies operations to a table and updates the table's version
-func (r *RedshiftBackend) ApplyOperations(table string, ops []scoop_protocol.Operation, targetVersion int, timeoutMs int) error {
+func (r *RedshiftBackend) ApplyOperations(table string, ops []scoop_protocol.Operation, hasViewColumn bool,
+	targetVersion int, timeoutMs int) error {
 	lock := r.getTableLock(table)
 	lock.Lock()
 	defer lock.Unlock()
 
+	cvs := r.buildCreateViewString(table, hasViewColumn)
 	return r.connection.ExecFnInTransaction(func(tx *sql.Tx) error {
 		err := expectVersion(tx, table, targetVersion-1)
 		if err != nil {
@@ -211,18 +222,29 @@ func (r *RedshiftBackend) ApplyOperations(table string, ops []scoop_protocol.Ope
 		query := fmt.Sprintf("SET statement_timeout TO %d", timeoutMs)
 		_, err = tx.Exec(query)
 		if err != nil {
-			return fmt.Errorf("Error setting timeout: %v", err)
+			return fmt.Errorf("setting timeout: %v", err)
 		}
-		for _, op := range ops {
-			err = applyOperation(op, pq.QuoteIdentifier(r.physicalSchema), pq.QuoteIdentifier(table), tx)
+		if ops != nil {
+			_, err = tx.Exec(fmt.Sprintf(`DROP VIEW %s.%s CASCADE`,
+				pq.QuoteIdentifier(r.viewSchema), pq.QuoteIdentifier(table)))
 			if err != nil {
-				return err
+				return fmt.Errorf("dropping view: %v", err)
+			}
+			for _, op := range ops {
+				err = applyOperation(op, pq.QuoteIdentifier(r.physicalSchema), pq.QuoteIdentifier(table), tx)
+				if err != nil {
+					return err
+				}
+			}
+			_, err = tx.Exec(cvs)
+			if err != nil {
+				return fmt.Errorf("CREATEing VIEW %s: %v", table, err)
 			}
 		}
 		query = fmt.Sprintf("INSERT INTO infra.table_version (name, version, ts) VALUES ($1, $2, GETDATE())")
 		_, err = tx.Exec(query, table, targetVersion)
 		if err != nil {
-			return fmt.Errorf("Error updating table_version in ace: %v", err)
+			return fmt.Errorf("updating table_version in ace: %v", err)
 		}
 		return nil
 	})
@@ -264,24 +286,40 @@ func (n *newTable) getColumnCreationString() string {
 	return out.String()
 }
 
+func (r *RedshiftBackend) buildCreateViewString(table string, hasViewColumn bool) string {
+	viewFilter := ""
+	if hasViewColumn {
+		viewFilter = r.viewFilter
+	}
+	return fmt.Sprintf(`CREATE VIEW %s.%s AS SELECT * FROM %s.%s %s`,
+		pq.QuoteIdentifier(r.viewSchema), pq.QuoteIdentifier(table),
+		pq.QuoteIdentifier(r.physicalSchema), pq.QuoteIdentifier(table), viewFilter)
+}
+
 //CreateTable creates a table at logs.`table` with the columns in ops unless the ops have DROP_EVENT.
-func (r *RedshiftBackend) CreateTable(table string, ops []scoop_protocol.Operation, version int) error {
+func (r *RedshiftBackend) CreateTable(table string, ops []scoop_protocol.Operation,
+	hasViewColumn bool, version int) error {
 	newTable, err := buildNewTable(ops)
 	// If we had a problem or the operations are to drop the table, just return.
 	if err != nil || newTable == nil {
 		return err
 	}
+	cvs := r.buildCreateViewString(table, hasViewColumn)
 	return r.connection.ExecFnInTransaction(func(tx *sql.Tx) error {
 		query := fmt.Sprintf(`CREATE TABLE %s.%s%s;`, pq.QuoteIdentifier(r.physicalSchema),
 			pq.QuoteIdentifier(table), newTable.getColumnCreationString())
 		_, err = tx.Exec(query)
 		if err != nil {
-			return fmt.Errorf("Error CREATEing TABLE %s: %v", table, err)
+			return fmt.Errorf("CREATEing TABLE %s: %v", table, err)
+		}
+		_, err = tx.Exec(cvs)
+		if err != nil {
+			return fmt.Errorf("CREATEing VIEW %s: %v", table, err)
 		}
 		query = "INSERT INTO infra.table_version (name, version, ts) VALUES ($1, $2, GETDATE())"
 		_, err = tx.Exec(query, table, version)
 		if err != nil {
-			return fmt.Errorf("Error updating table_version in ace: %v", err)
+			return fmt.Errorf("updating table_version in ace: %v", err)
 		}
 		return nil
 	})
@@ -302,7 +340,7 @@ func (r *RedshiftBackend) TableExists(table string) (bool, error) {
 	err := r.connection.Conn.QueryRow(query, r.physicalSchema, table).Scan(&exists)
 	switch {
 	case err != nil:
-		return false, fmt.Errorf("error querying whether table exists: %v", err)
+		return false, fmt.Errorf("querying whether table exists: %v", err)
 	default:
 		return exists, nil
 	}
@@ -333,8 +371,18 @@ func (r *RedshiftBackend) TableLocked(table string) (bool, error) {
 	err := r.connection.Conn.QueryRow(query, r.physicalSchema, table).Scan(&exists)
 	switch {
 	case err != nil:
-		return false, fmt.Errorf("error querying whether %s table is locked: %v", table, err)
+		return false, fmt.Errorf("querying whether %s table is locked: %v", table, err)
 	default:
 		return exists, nil
 	}
+}
+
+// HasViewColumn returns whether the given table has the viewColumn in it.
+func (r *RedshiftBackend) HasViewColumn(cols []scoop_protocol.ColumnDefinition) bool {
+	for _, col := range cols {
+		if col.OutboundName == r.viewColumn {
+			return true
+		}
+	}
+	return false
 }
