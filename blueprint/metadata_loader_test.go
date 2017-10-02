@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/twitchscience/aws_utils/logger"
-	"github.com/twitchscience/rs_ingester/monitoring"
+	"github.com/twitchscience/aws_utils/monitoring"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
 
@@ -35,7 +35,6 @@ var (
 )
 
 func TestRefresh(t *testing.T) {
-	stats, _ := monitoring.InitStats("scieng-test.ingester")
 	loader, err := NewMetadataLoader(
 		&mockFetcher{
 			failFetch: []bool{false, false},
@@ -46,7 +45,7 @@ func TestRefresh(t *testing.T) {
 		},
 		1*time.Microsecond,
 		1,
-		stats,
+		monitoring.NewMockStatter(),
 	)
 	if err != nil {
 		t.Fatalf("was expecting no error but got %v\n", err)
@@ -72,14 +71,13 @@ func TestRefresh(t *testing.T) {
 }
 
 func TestRetryPull(t *testing.T) {
-	stats, _ := monitoring.InitStats("scieng-test.ingester")
 	_, err := NewMetadataLoader(
 		&mockFetcher{
 			failFetch: []bool{true, true, true, true, true},
 		},
 		1*time.Second,
 		1*time.Microsecond,
-		stats,
+		monitoring.NewMockStatter(),
 	)
 	if err == nil {
 		t.Fatalf("expected loader to timeout\n")

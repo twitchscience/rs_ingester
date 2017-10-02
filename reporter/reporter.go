@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/twitchscience/aws_utils/logger"
+	"github.com/twitchscience/aws_utils/monitoring"
 	"github.com/twitchscience/rs_ingester/metadata"
-	"github.com/twitchscience/rs_ingester/monitoring"
 )
 
 type clock interface {

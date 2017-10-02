@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/twitchscience/aws_utils/common"
+	"github.com/twitchscience/aws_utils/monitoring"
 	"github.com/twitchscience/rs_ingester/backend"
 
 	"time"
@@ -13,7 +14,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager/s3manageriface"
-	"github.com/cactus/go-statsd-client/statsd"
 	"github.com/twitchscience/rs_ingester/metadata"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
@@ -22,12 +22,12 @@ import (
 type RSLoader struct {
 	rsBackend  backend.Backend
 	bucket     string
-	stats      statsd.Statter
+	stats      monitoring.SafeStatter
 	s3Uploader s3manageriface.UploaderAPI
 }
 
 //NewRSLoader returns a RSLoader instance
-func NewRSLoader(s3Uploader s3manageriface.UploaderAPI, rsBackend backend.Backend, manifestBucket string, stats statsd.Statter) (Loader, error) {
+func NewRSLoader(s3Uploader s3manageriface.UploaderAPI, rsBackend backend.Backend, manifestBucket string, stats monitoring.SafeStatter) (Loader, error) {
 	return &RSLoader{
 		rsBackend:  rsBackend,
 		bucket:     manifestBucket,
@@ -52,7 +52,7 @@ func (rsl *RSLoader) LoadManifest(manifest *metadata.LoadManifest) LoadError {
 		return &loadError{msg: err.Error(), isRetryable: true}
 	}
 
-	_ = rsl.stats.Timing(manifest.TableName, int64(time.Since(start)), 1)
+	rsl.stats.SafeTimingDuration(manifest.TableName, time.Since(start), 1.0)
 	return nil
 }
 
