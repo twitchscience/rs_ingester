@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/twitchscience/aws_utils/logger"
-	"github.com/twitchscience/rs_ingester/monitoring"
+	"github.com/twitchscience/aws_utils/monitoring"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
 

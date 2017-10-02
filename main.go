@@ -26,6 +26,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager/s3manageriface"
 	"github.com/twitchscience/aws_utils/logger"
+	"github.com/twitchscience/aws_utils/monitoring"
 	"github.com/twitchscience/rs_ingester/blueprint"
 	"github.com/twitchscience/rs_ingester/control"
 	"github.com/twitchscience/rs_ingester/migrator"
@@ -35,7 +36,6 @@ import (
 	"github.com/twitchscience/rs_ingester/healthcheck"
 	"github.com/twitchscience/rs_ingester/loadclient"
 	"github.com/twitchscience/rs_ingester/metadata"
-	"github.com/twitchscience/rs_ingester/monitoring"
 	"github.com/twitchscience/rs_ingester/reporter"
 )
 
@@ -142,7 +142,7 @@ func main() {
 	flag.Parse()
 	pgConfig.LoadAgeTrigger = time.Second * time.Duration(loadAgeSeconds)
 
-	stats, err := monitoring.InitStats(statsPrefix)
+	stats, err := monitoring.NewStatter(os.Getenv("STATSD_HOSTPORT"), statsPrefix)
 	if err != nil {
 		logger.WithError(err).Fatal("Failed to setup statter")
 	}

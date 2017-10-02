@@ -23,9 +23,9 @@ import (
 	"github.com/aws/aws-sdk-go/service/sqs/sqsiface"
 	"github.com/twitchscience/aws_utils/listener"
 	"github.com/twitchscience/aws_utils/logger"
+	"github.com/twitchscience/aws_utils/monitoring"
 	"github.com/twitchscience/rs_ingester/blueprint"
 	"github.com/twitchscience/rs_ingester/metadata"
-	"github.com/twitchscience/rs_ingester/monitoring"
 	"github.com/twitchscience/scoop_protocol/scoop_protocol"
 )
 
@@ -72,7 +72,7 @@ func main() {
 	logger.InitWithRollbar("info", rollbarToken, rollbarEnvironment)
 	defer logger.LogPanic()
 
-	stats, err := monitoring.InitStats(statsPrefix)
+	stats, err := monitoring.NewStatter(os.Getenv("STATSD_HOSTPORT"), statsPrefix)
 	if err != nil {
 		logger.WithError(err).Fatal("Error initializing stats")
 	}
