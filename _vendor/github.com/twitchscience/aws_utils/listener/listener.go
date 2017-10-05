@@ -22,6 +22,7 @@ type SQSHandler interface {
 // SQSFilter will perform a predicate on messages
 type SQSFilter interface {
 	Filter(*sqs.Message) bool
+	Failed(*sqs.Message)
 }
 
 // DedupSQSFilter filters messages if they are a recent duplicate
@@ -37,6 +38,13 @@ func (f *DedupSQSFilter) Filter(msg *sqs.Message) bool {
 		return false
 	}
 	return true
+}
+
+// Failed will cleanup state of DedupSQSFilter when a message fails processing
+// in this case it should be purged from the cache
+func (f *DedupSQSFilter) Failed(msg *sqs.Message) {
+	msgBody := aws.StringValue(msg.Body)
+	_ = f.cache.Unset(msgBody)
 }
 
 func NewDedupSQSFilter(maxEntries int, lifetime time.Duration) *DedupSQSFilter {

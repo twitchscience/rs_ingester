@@ -224,23 +224,23 @@
 		},
 		{
 			"ImportPath": "github.com/twitchscience/aws_utils/cache/lru",
-			"Rev": "9a5b0221997ee9d9649d38d8348a2621c0832c9f"
+			"Rev": "fec507529a4828bb16cc83c92471f074a40d1ddb"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/aws_utils/common",
-			"Rev": "9a5b0221997ee9d9649d38d8348a2621c0832c9f"
+			"Rev": "fec507529a4828bb16cc83c92471f074a40d1ddb"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/aws_utils/listener",
-			"Rev": "9a5b0221997ee9d9649d38d8348a2621c0832c9f"
+			"Rev": "fec507529a4828bb16cc83c92471f074a40d1ddb"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/aws_utils/logger",
-			"Rev": "9a5b0221997ee9d9649d38d8348a2621c0832c9f"
+			"Rev": "fec507529a4828bb16cc83c92471f074a40d1ddb"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/aws_utils/monitoring",
-			"Rev": "9a5b0221997ee9d9649d38d8348a2621c0832c9f"
+			"Rev": "fec507529a4828bb16cc83c92471f074a40d1ddb"
 		},
 		{
 			"ImportPath": "github.com/twitchscience/scoop_protocol/msg_signer",

@@ -78,6 +78,19 @@ func (c *Cache) Set(key, value string) bool {
 	return true
 }
 
+// Unset removes the provided key from the cache.
+func (c *Cache) Unset(key string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if ee, ok := c.cache[key]; ok {
+		c.ll.Remove(ee)
+		delete(c.cache, key)
+		return nil
+	}
+	return ErrCacheMiss
+}
+
 // Get fetches the key's value from the cache.
 // The error result will be nil if the item was found.
 // Note that while the entry will be moved to the front of the queue, its expiration
