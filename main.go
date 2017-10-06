@@ -193,10 +193,12 @@ func main() {
 		logger.WithError(err).Fatal("Failed to setup Redshift loading client for postgres")
 	}
 
+	logger.Info("Getting table versions from ace on startup")
 	initVersions, err := aceBackend.TableVersions()
 	if err != nil {
 		logger.WithError(err).Fatal("Failed initialization of table version cache")
 	}
+	logger.Info("Got table versions from ace")
 	tableVersions := versions.New(initVersions)
 
 	var metaBackend metadata.Backend
