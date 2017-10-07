@@ -118,7 +118,7 @@ func NewPostgresLoader(cfg *PGConfig, lChecker loadChecker, versions versions.Ge
 	logger.Info("Checking orphaned loads in PostgresLoader startup")
 	err = b.checkOrphanedLoads()
 	if err != nil {
-		return nil, fmt.Errorf("Failed to check orphaned loads: %s", err)
+		return nil, fmt.Errorf("checking orphaned loads: %s", err)
 	}
 	logger.Info("Done checking orphaned loads in PostgresLoader startup")
 
@@ -147,7 +147,7 @@ func (b *postgresBackend) execFnInTransaction(work func(*sql.Tx) error) error {
 		return err
 	}
 	if commitErr := tx.Commit(); commitErr != nil {
-		return fmt.Errorf("failed in commit: %v", commitErr)
+		return fmt.Errorf("committing: %v", commitErr)
 	}
 	return nil
 }
@@ -170,7 +170,7 @@ func (b *postgresBackend) checkOrphanedLoads() error {
 		var uuid string
 		err = rows.Scan(&uuid)
 		if err != nil {
-			return fmt.Errorf("Got error fetching orphaned loads: %v", err)
+			return fmt.Errorf("querying for orphaned loads: %v", err)
 		}
 		orphanUUIDs = append(orphanUUIDs, uuid)
 	}
@@ -265,7 +265,7 @@ func (b *postgresBackend) Versions() (map[string]int, error) {
 		ret[table] = version
 
 		if err != nil {
-			return nil, fmt.Errorf("Got error fetching unloaded tsv versions: %v", err)
+			return nil, fmt.Errorf("fetching unloaded tsv versions: %v", err)
 		}
 	}
 	return ret, nil
@@ -310,6 +310,9 @@ func (b *postgresBackend) loadReadyWorker() {
 			err := retrying(dbRetryCount, func() error {
 				var err error
 				failed, err = b.fetchFailedLoad()
+				if err != nil {
+					logger.WithError(err).Warn("Error checking failed loads")
+				}
 				return err
 			})
 			if err == nil {
@@ -350,41 +353,20 @@ func (b *postgresBackend) loadReadyWorker() {
 	}
 }
 
-// Returns one failed load
-func (b *postgresBackend) fetchFailedLoadCandidate() (string, string, error) {
-	var loadUUID string
-	var lastError sql.NullString
-	err := b.execFnInTransaction(func(tx *sql.Tx) error {
-		var innerErr error
-		loadUUID, lastError, innerErr = failedLoadMetadata(tx)
-		return innerErr
-	})
-	if err != nil {
-		return "", "", err
-	}
-	if loadUUID == "" {
-		return "", "", nil
-	}
-	return loadUUID, lastError.String, nil
-}
-
 // Check for failed loads, marking them as done if they actually succeeded. If retriable, returns
 // them to be added to the load queue
 func (b *postgresBackend) fetchFailedLoad() (*LoadManifest, error) {
 	var loadUUID, lastError string
 	for { // Loop until we find a non-successful failed load, there are no more failed loads, or there was an error
 		var err error
-		loadUUID, lastError, err = b.fetchFailedLoadCandidate()
-		if err != nil {
-			return nil, err
-		}
-		if loadUUID == "" { // no more failed loads
-			return nil, nil
-		}
 
 		var status scoop_protocol.LoadStatus
 		err = b.execFnInTransaction(func(tx *sql.Tx) error {
 			var innerErr error
+			loadUUID, lastError, innerErr = failedLoadMetadata(tx)
+			if loadUUID == "" || innerErr != nil { // no more failed loads or an error
+				return innerErr
+			}
 			status, innerErr = b.loadChecker.CheckLoad(loadUUID)
 			if innerErr != nil {
 				return fmt.Errorf("checking load: %s", innerErr)
@@ -403,6 +385,9 @@ func (b *postgresBackend) fetchFailedLoad() (*LoadManifest, error) {
 			}
 			return nil
 		})
+		if loadUUID == "" { // no more failed loads
+			return nil, nil
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -425,11 +410,11 @@ func (b *postgresBackend) fetchFailedLoad() (*LoadManifest, error) {
 	return tsv, err
 }
 
-func failedLoadMetadata(tx *sql.Tx) (loadUUID string, lastError sql.NullString, err error) {
+func failedLoadMetadata(tx *sql.Tx) (loadUUID string, lastError string, err error) {
 	now := time.Now().In(time.UTC)
 	rows, err := tx.Query(`UPDATE manifest
-                               SET retry_ts = null,
-							       retry_count = retry_count + 1
+			       SET retry_ts = null,
+			           retry_count = retry_count + 1
                                WHERE uuid IN (
                                  SELECT uuid
                                  FROM manifest

@@ -3,7 +3,6 @@ package loadclient
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 
 	"github.com/twitchscience/aws_utils/common"
 	"github.com/twitchscience/aws_utils/monitoring"
@@ -64,7 +63,7 @@ func (rsl *RSLoader) CheckLoad(manifestUUID string) (scoop_protocol.LoadStatus, 
 		ManifestURL: url,
 	})
 	if err != nil {
-		return "", fmt.Errorf("Check load failed: %s", err.Error())
+		return "", err
 	}
 
 	return loadstatus.LoadStatus, nil
