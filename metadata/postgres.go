@@ -43,6 +43,7 @@ type postgresBackend struct {
 	loadReady     chan *LoadManifest
 	gracefulClose chan struct{}
 	versions      versions.Getter
+	lastLoaded    map[string]time.Time
 }
 
 var (
@@ -108,6 +109,7 @@ func NewPostgresLoader(cfg *PGConfig, lChecker loadChecker, versions versions.Ge
 		wait:          make(chan struct{}),
 		gracefulClose: make(chan struct{}),
 		versions:      versions,
+		lastLoaded:    make(map[string]time.Time),
 	}
 
 	err := b.connectBackendToDB()
@@ -149,6 +151,36 @@ func (b *postgresBackend) execFnInTransaction(work func(*sql.Tx) error) error {
 	if commitErr := tx.Commit(); commitErr != nil {
 		return fmt.Errorf("committing: %v", commitErr)
 	}
+	return nil
+}
+
+func (b *postgresBackend) getLastLoadedTimes() error {
+	rows, err := b.db.Query(`SELECT tablename, last_loaded FROM last_load`)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		err = rows.Close()
+		if err != nil {
+			logger.WithError(err).Error("Error closing rows for initializing last loaded tables")
+		}
+	}()
+
+	for rows.Next() {
+		var tablename string
+		var lastLoaded time.Time
+		err = rows.Scan(&tablename, &lastLoaded)
+		if err != nil {
+			return fmt.Errorf("Got error fetching last loaded row: %v", err)
+		}
+		if _, exists := b.lastLoaded[tablename]; exists {
+			logger.WithField("table", tablename).Error("Table appeared twice in last_loaded")
+			continue
+		}
+		b.lastLoaded[tablename] = lastLoaded
+	}
+
 	return nil
 }
 
@@ -849,4 +881,8 @@ func (b *postgresBackend) ListDistinctTables() ([]string, error) {
 		distinctTables = append(distinctTables, table)
 	}
 	return distinctTables, nil
+}
+
+func (b *postgresBackend) GetLastLoads() map[string]time.Time {
+	pass
 }

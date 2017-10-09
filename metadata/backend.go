@@ -30,6 +30,7 @@ type Reader interface {
 type Backend interface {
 	Storer
 	Reader
+	// LastLoadManager
 	LoadReady() chan *LoadManifest
 	LoadError(manifestUUID, loadError string)
 	LoadDone(manifestUUID string)
@@ -40,6 +41,12 @@ type Storer interface {
 	InsertLoad(load *Load) error
 	ListDistinctTables() ([]string, error)
 	Close()
+}
+
+// LastLoadManager tracks and updates the last time a table was loaded
+type LastLoadManager interface {
+	GetLastLoads() map[string]time.Time
+	UpdateLastLoad(table string) error
 }
 
 // EventStats defines a set of statistics recorded for a particular event.
