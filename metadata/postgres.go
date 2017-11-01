@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"math/rand"
+	"sync"
 	"time"
 
 	_ "github.com/lib/pq" // To register "postgres" with database/sql
@@ -35,6 +36,11 @@ type loadableTable struct {
 	forceLoadID *int
 }
 
+type lastLoadedManager struct {
+	lastLoaded map[string]time.Time
+	lock       sync.RWMutex
+}
+
 type postgresBackend struct {
 	db            *sql.DB
 	cfg           *PGConfig
@@ -43,13 +49,14 @@ type postgresBackend struct {
 	loadReady     chan *LoadManifest
 	gracefulClose chan struct{}
 	versions      versions.Getter
-	lastLoaded    map[string]time.Time
+	lastLoaded    lastLoadedManager
 }
 
 var (
 	errorNoTsvs             = errors.New("No tsvs were found with that manifest id")
 	errorNoLoads            = errors.New("Found no loads to do")
 	tableToLoadSearchSize   = 50
+	lastLoadRefreshInterval = time.Minute * 5
 	maxLoadRetryCount       int
 	dbRetryCount            int
 	noWorkDelay             time.Duration
@@ -109,7 +116,7 @@ func NewPostgresLoader(cfg *PGConfig, lChecker loadChecker, versions versions.Ge
 		wait:          make(chan struct{}),
 		gracefulClose: make(chan struct{}),
 		versions:      versions,
-		lastLoaded:    make(map[string]time.Time),
+		lastLoaded:    lastLoadedManager{},
 	}
 
 	err := b.connectBackendToDB()
@@ -123,6 +130,14 @@ func NewPostgresLoader(cfg *PGConfig, lChecker loadChecker, versions versions.Ge
 		return nil, fmt.Errorf("checking orphaned loads: %s", err)
 	}
 	logger.Info("Done checking orphaned loads in PostgresLoader startup")
+
+	logger.Info("Pulling table last loaded times from DB")
+	ll, err := b.getLastLoadedTimes()
+	if err != nil {
+		return nil, fmt.Errorf("pulling table last loaded times: %s", err)
+	}
+	logger.Info("Done Pulling table last loaded times from DB")
+	b.lastLoaded.lastLoaded = ll
 
 	logger.Go(b.loadReadyWorker)
 
@@ -154,10 +169,10 @@ func (b *postgresBackend) execFnInTransaction(work func(*sql.Tx) error) error {
 	return nil
 }
 
-func (b *postgresBackend) getLastLoadedTimes() error {
+func (b *postgresBackend) getLastLoadedTimes() (map[string]time.Time, error) {
 	rows, err := b.db.Query(`SELECT tablename, last_loaded FROM last_load`)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	defer func() {
@@ -167,21 +182,22 @@ func (b *postgresBackend) getLastLoadedTimes() error {
 		}
 	}()
 
+	times := map[string]time.Time{}
 	for rows.Next() {
 		var tablename string
 		var lastLoaded time.Time
 		err = rows.Scan(&tablename, &lastLoaded)
 		if err != nil {
-			return fmt.Errorf("Got error fetching last loaded row: %v", err)
+			return nil, fmt.Errorf("Got error fetching last loaded row: %v", err)
 		}
-		if _, exists := b.lastLoaded[tablename]; exists {
+		if _, exists := times[tablename]; exists {
 			logger.WithField("table", tablename).Error("Table appeared twice in last_loaded")
 			continue
 		}
-		b.lastLoaded[tablename] = lastLoaded
+		times[tablename] = lastLoaded
 	}
 
-	return nil
+	return times, nil
 }
 
 func (b *postgresBackend) checkOrphanedLoads() error {
@@ -319,6 +335,45 @@ func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUUID string) error 
 	}
 
 	_, err = tx.Exec("DELETE FROM manifest WHERE uuid = $1", manifestUUID)
+	if err != nil {
+		return err
+	}
+
+	doneTime := time.Now()
+
+	rows, err := tx.Query(`SELECT DISTINCT tablename FROM tsv WHERE manifest_uuid = $1`, manifestUUID)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err = rows.Close()
+		if err != nil {
+			logger.WithError(err).Error("Error closing rows for querying tablename on success")
+		}
+	}()
+	if rows.Next() {
+		err = rows.Scan(&loadUUID, &lastError)
+		if err != nil {
+			logger.WithError(err).Error("Got error fetching tsv row")
+			return
+		}
+	}
+
+	_, err = tx.Query(`
+		INSERT INTO last_load (tablename, last_loaded)
+		SELECT DISTINCT tablename, $1 FROM tsv WHERE manifest_uuid = $2
+		`, manifestUUID, doneTime)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Query(`
+		WITH outdated AS (SELECT )
+		DELETE FROM last_load WHERE last_loaded < (SELECT max(last_loaded) FROM last_loaded WHERE tablename=)
+		`, manifestUUID, doneTime)
+	if err != nil {
+		return err
+	}
+
 	return err
 }
 
@@ -883,6 +938,14 @@ func (b *postgresBackend) ListDistinctTables() ([]string, error) {
 	return distinctTables, nil
 }
 
-func (b *postgresBackend) GetLastLoads() map[string]time.Time {
-	pass
+func (m *lastLoadedManager) GetLastLoads() map[string]time.Time {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	//return b.lastLoaded.
+	//if time.Since(b.lastLoadedFetched) > lastLoadRefreshInterval {
+	//	logger.Info("Fetching Last")
+	//	}
+
+	return nil
 }
