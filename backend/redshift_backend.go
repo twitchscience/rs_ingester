@@ -29,23 +29,27 @@ var (
 
 //RedshiftBackend is the struct that holds the RSConnection pool and where backend operations are done from
 type RedshiftBackend struct {
-	connection     *redshift.RSConnection
-	credentials    *credentials.Credentials
-	tableLocks     map[string]*sync.Mutex
-	lockLock       *sync.Mutex
-	physicalSchema string
-	viewSchema     string
-	viewColumn     string
-	viewFilter     string
+	connection           *redshift.RSConnection
+	credentials          *credentials.Credentials
+	tableLocks           map[string]*sync.Mutex
+	lockLock             *sync.Mutex
+	physicalSchema       string
+	viewSchema           string
+	viewColumn           string
+	viewFilter           string
+	fullViewSchema       string
+	fullViewReplacements map[string]string
 }
 
 // Config is used to configure the behavior of the RedshiftBackend
 type Config struct {
-	PhyiscalSchema string `json:"physicalSchema"`
-	ViewSchema     string `json:"viewSchema"`
-	ViewColumn     string `json:"viewColumn"`
-	ViewFilter     string `json:"viewFilter"`
-	URL            string `json:"url"`
+	PhyiscalSchema       string            `json:"physicalSchema"`
+	ViewSchema           string            `json:"viewSchema"`
+	ViewColumn           string            `json:"viewColumn"`
+	ViewFilter           string            `json:"viewFilter"`
+	FullViewSchema       string            `json:"fullViewSchema"`
+	FullViewReplacements map[string]string `json:"fullViewReplacements"`
+	URL                  string            `json:"url"`
 }
 
 //BuildRedshiftBackend builds a new redshift backend by also creating a new rsConnection
@@ -58,14 +62,16 @@ func BuildRedshiftBackend(credentials *credentials.Credentials, poolSize int, co
 		go conn.Listen()
 	}
 	return &RedshiftBackend{
-		connection:     conn,
-		credentials:    credentials,
-		tableLocks:     make(map[string]*sync.Mutex),
-		lockLock:       &sync.Mutex{},
-		physicalSchema: config.PhyiscalSchema,
-		viewSchema:     config.ViewSchema,
-		viewColumn:     config.ViewColumn,
-		viewFilter:     config.ViewFilter,
+		connection:           conn,
+		credentials:          credentials,
+		tableLocks:           make(map[string]*sync.Mutex),
+		lockLock:             &sync.Mutex{},
+		physicalSchema:       config.PhyiscalSchema,
+		viewSchema:           config.ViewSchema,
+		viewColumn:           config.ViewColumn,
+		viewFilter:           config.ViewFilter,
+		fullViewSchema:       config.FullViewSchema,
+		fullViewReplacements: config.FullViewReplacements,
 	}, nil
 }
 
@@ -206,13 +212,13 @@ func applyOperation(op scoop_protocol.Operation, quotedSchema string, quotedTabl
 }
 
 //ApplyOperations applies operations to a table and updates the table's version
-func (r *RedshiftBackend) ApplyOperations(table string, ops []scoop_protocol.Operation, hasViewColumn bool,
-	targetVersion int, timeoutMs int) error {
+func (r *RedshiftBackend) ApplyOperations(table string, ops []scoop_protocol.Operation,
+	cols []scoop_protocol.ColumnDefinition, targetVersion int, timeoutMs int) error {
 	lock := r.getTableLock(table)
 	lock.Lock()
 	defer lock.Unlock()
 
-	cvs := r.buildCreateViewString(table, hasViewColumn)
+	cvs := r.buildCreateViewString(table, cols)
 	return r.connection.ExecFnInTransaction(func(tx *sql.Tx) error {
 		err := expectVersion(tx, table, targetVersion-1)
 		if err != nil {
@@ -229,6 +235,11 @@ func (r *RedshiftBackend) ApplyOperations(table string, ops []scoop_protocol.Ope
 				pq.QuoteIdentifier(r.viewSchema), pq.QuoteIdentifier(table)))
 			if err != nil {
 				return fmt.Errorf("dropping view: %v", err)
+			}
+			_, err = tx.Exec(fmt.Sprintf(`DROP VIEW IF EXISTS %s.%s CASCADE`,
+				pq.QuoteIdentifier(r.fullViewSchema), pq.QuoteIdentifier(table)))
+			if err != nil {
+				return fmt.Errorf("dropping full view: %v", err)
 			}
 			for _, op := range ops {
 				err = applyOperation(op, pq.QuoteIdentifier(r.physicalSchema), pq.QuoteIdentifier(table), tx)
@@ -286,25 +297,38 @@ func (n *newTable) getColumnCreationString() string {
 	return out.String()
 }
 
-func (r *RedshiftBackend) buildCreateViewString(table string, hasViewColumn bool) string {
+func (r *RedshiftBackend) buildCreateViewString(table string, tableCols []scoop_protocol.ColumnDefinition) string {
 	viewFilter := ""
-	if hasViewColumn {
+	fullCVS := ""
+	if r.hasViewColumn(tableCols) {
 		viewFilter = r.viewFilter
+		fullViewCols := make([]string, len(tableCols))
+		for i, col := range tableCols {
+			if repCol, ok := r.fullViewReplacements[col.OutboundName]; ok {
+				fullViewCols[i] = repCol
+			} else {
+				fullViewCols[i] = pq.QuoteIdentifier(col.OutboundName)
+			}
+		}
+		fullCVS = fmt.Sprintf(`CREATE VIEW %s.%s AS SELECT %s FROM %s.%s`,
+			pq.QuoteIdentifier(r.fullViewSchema), pq.QuoteIdentifier(table),
+			strings.Join(fullViewCols, ", "),
+			pq.QuoteIdentifier(r.physicalSchema), pq.QuoteIdentifier(table))
 	}
-	return fmt.Sprintf(`CREATE VIEW %s.%s AS SELECT * FROM %s.%s %s`,
+	return fmt.Sprintf(`CREATE VIEW %s.%s AS SELECT * FROM %s.%s %s; %s`,
 		pq.QuoteIdentifier(r.viewSchema), pq.QuoteIdentifier(table),
-		pq.QuoteIdentifier(r.physicalSchema), pq.QuoteIdentifier(table), viewFilter)
+		pq.QuoteIdentifier(r.physicalSchema), pq.QuoteIdentifier(table), viewFilter, fullCVS)
 }
 
 //CreateTable creates a table at logs.`table` with the columns in ops unless the ops have DROP_EVENT.
 func (r *RedshiftBackend) CreateTable(table string, ops []scoop_protocol.Operation,
-	hasViewColumn bool, version int) error {
+	cols []scoop_protocol.ColumnDefinition, version int) error {
 	newTable, err := buildNewTable(ops)
 	// If we had a problem or the operations are to drop the table, just return.
 	if err != nil || newTable == nil {
 		return err
 	}
-	cvs := r.buildCreateViewString(table, hasViewColumn)
+	cvs := r.buildCreateViewString(table, cols)
 	return r.connection.ExecFnInTransaction(func(tx *sql.Tx) error {
 		query := fmt.Sprintf(`CREATE TABLE %s.%s%s;`, pq.QuoteIdentifier(r.physicalSchema),
 			pq.QuoteIdentifier(table), newTable.getColumnCreationString())
@@ -377,8 +401,8 @@ func (r *RedshiftBackend) TableLocked(table string) (bool, error) {
 	}
 }
 
-// HasViewColumn returns whether the given table has the viewColumn in it.
-func (r *RedshiftBackend) HasViewColumn(cols []scoop_protocol.ColumnDefinition) bool {
+// hasViewColumn returns whether the given table has the viewColumn in it.
+func (r *RedshiftBackend) hasViewColumn(cols []scoop_protocol.ColumnDefinition) bool {
 	for _, col := range cols {
 		if col.OutboundName == r.viewColumn {
 			return true
