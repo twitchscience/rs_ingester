@@ -135,7 +135,12 @@ func (rs *RSConnection) ExecFnInTransaction(work func(*sql.Tx) error) error {
 	if err != nil {
 		rollbackErr := tx.Rollback()
 		if rollbackErr != nil {
-			logger.WithError(rollbackErr).Error("Could not rollback successfully")
+			if strings.Contains(err.Error(), "driver: bad connection") {
+				// Ace is down, just log a warning
+				logger.WithError(rollbackErr).Warning("Could not rollback successfully")
+			} else {
+				logger.WithError(rollbackErr).Error("Could not rollback successfully")
+			}
 		}
 		return err
 	}
