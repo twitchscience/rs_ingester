@@ -372,7 +372,7 @@ func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUUID string, tableN
 	doneTime := time.Now().In(time.UTC)
 	logger.Info(tableName)
 	_, err = tx.Query(`
-		SELECT '$1'::varchar AS tablename, '$2'::timestamp AS last_loaded
+		SELECT $1::varchar AS tablename, $2::timestamp AS last_loaded
 		INTO TEMP TABLE ll_stage
 		`, tableName, doneTime)
 	if err != nil {
