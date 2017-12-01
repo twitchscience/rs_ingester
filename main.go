@@ -36,6 +36,7 @@ import (
 
 	"github.com/twitchscience/rs_ingester/backend"
 	"github.com/twitchscience/rs_ingester/healthcheck"
+	"github.com/twitchscience/rs_ingester/lastload"
 	"github.com/twitchscience/rs_ingester/loadclient"
 	"github.com/twitchscience/rs_ingester/metadata"
 	"github.com/twitchscience/rs_ingester/reporter"
@@ -92,7 +93,7 @@ func (i *loadWorker) Work(stats monitoring.SafeStatter) {
 			continue
 		}
 		logfields.Info("Loaded manifest into table")
-		i.MetadataBackend.LoadDone(load.UUID)
+		i.MetadataBackend.LoadDone(load.UUID, load.TableName)
 
 		stats.SafeInc("manifest_load.count", 1, 1.0)
 		statsdPattern := "tsv_files.%s.loaded"
@@ -232,8 +233,10 @@ func main() {
 
 	controlBackend := control.NewControlBackend(metaReader, tableVersions, versionIncrement)
 	controlHandler := control.NewControlHandler(controlBackend, stats)
-
 	serveMux.Handle("/control/", control.NewControlRouter(controlHandler))
+
+	llHandler := lastload.NewLastLoadHandler(metaBackend.GetLastLoadManager())
+	serveMux.Handle("/last_load", lastload.NewLastLoadRouter(llHandler))
 
 	logger.Go(func() {
 		logger.WithError(http.ListenAndServe(net.JoinHostPort("localhost", "8080"), serveMux)).

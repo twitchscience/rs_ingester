@@ -49,7 +49,7 @@ type postgresBackend struct {
 	loadReady     chan *LoadManifest
 	gracefulClose chan struct{}
 	versions      versions.Getter
-	lastLoaded    lastLoadedManager
+	lastLoaded    LastLoadManager
 }
 
 var (
@@ -116,7 +116,6 @@ func NewPostgresLoader(cfg *PGConfig, lChecker loadChecker, versions versions.Ge
 		wait:          make(chan struct{}),
 		gracefulClose: make(chan struct{}),
 		versions:      versions,
-		lastLoaded:    lastLoadedManager{},
 	}
 
 	err := b.connectBackendToDB()
@@ -137,7 +136,9 @@ func NewPostgresLoader(cfg *PGConfig, lChecker loadChecker, versions versions.Ge
 		return nil, fmt.Errorf("pulling table last loaded times: %s", err)
 	}
 	logger.Info("Done Pulling table last loaded times from DB")
-	b.lastLoaded.lastLoaded = ll
+	llm := lastLoadedManager{}
+	llm.lastLoaded = ll
+	b.lastLoaded = &llm
 
 	logger.Go(b.loadReadyWorker)
 
@@ -200,6 +201,29 @@ func (b *postgresBackend) getLastLoadedTimes() (map[string]time.Time, error) {
 	return times, nil
 }
 
+func (b *postgresBackend) getTableNameFromUUID(tx *sql.Tx, uuid string) (string, error) {
+	rows, err := tx.Query("SELECT distinct tablename FROM tsv WHERE manifest_uuid = $1", uuid)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		err = rows.Close()
+		if err != nil {
+			logger.WithError(err).Error("Error closing rows for getting orphan table name")
+		}
+	}()
+
+	rows.Next()
+	var tableName string
+	err = rows.Scan(&tableName)
+	if err != nil {
+		logger.WithError(err).Error("Scan threw an error")
+		return "", err
+	}
+
+	return tableName, nil
+}
+
 func (b *postgresBackend) checkOrphanedLoads() error {
 	rows, err := b.db.Query(`SELECT uuid FROM manifest WHERE retry_ts IS NULL`)
 	if err != nil {
@@ -235,7 +259,13 @@ func (b *postgresBackend) checkOrphanedLoads() error {
 			case scoop_protocol.LoadComplete:
 				// If completed succesfully, delete tsv rows
 				logger.WithField("orphanUUID", orphanUUID).Info("Orphaned load is complete, marking done")
-				innerErr = b.loadDoneHelper(tx, orphanUUID)
+				orphanTableName, err := b.getTableNameFromUUID(tx, orphanUUID)
+				if err != nil {
+					logger.WithField("orphanUUID", orphanUUID).WithError(err).Error(
+						"Could not retrieve successful orphan load's table name")
+					return fmt.Errorf("could not retrieve succesful orphan load's name")
+				}
+				innerErr = b.loadDoneHelper(tx, orphanUUID, orphanTableName)
 
 			case scoop_protocol.LoadNotFound, scoop_protocol.LoadFailed:
 				// If load failed, mark for retry
@@ -272,9 +302,9 @@ func (b *postgresBackend) LoadReady() chan *LoadManifest {
 	return b.loadReady
 }
 
-func (b *postgresBackend) LoadDone(manifestUUID string) {
+func (b *postgresBackend) LoadDone(manifestUUID string, tableName string) {
 	err := retryInTransaction(dbRetryCount, b.db, func(tx *sql.Tx) error {
-		return b.loadDoneHelper(tx, manifestUUID)
+		return b.loadDoneHelper(tx, manifestUUID, tableName)
 	})
 	if err != nil {
 		logger.WithError(err).WithField("manifestUUID", manifestUUID).
@@ -328,7 +358,7 @@ func (b *postgresBackend) Close() {
 }
 
 // Non-committing load done helper function
-func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUUID string) error {
+func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUUID string, tableName string) error {
 	_, err := tx.Exec("DELETE FROM tsv WHERE manifest_uuid = $1", manifestUUID)
 	if err != nil {
 		return err
@@ -339,40 +369,30 @@ func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUUID string) error 
 		return err
 	}
 
+	// update last_load time for the table in ingesterdb
 	doneTime := time.Now()
 
-	rows, err := tx.Query(`SELECT DISTINCT tablename FROM tsv WHERE manifest_uuid = $1`, manifestUUID)
+	_, err = tx.Query(`
+		SELECT '$1'::varchar AS tablename, $2 AS last_loaded
+		INTO TEMP TABLE ll_stage
+		`, tableName, doneTime)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		err = rows.Close()
-		if err != nil {
-			logger.WithError(err).Error("Error closing rows for querying tablename on success")
-		}
-	}()
-	if rows.Next() {
-		err = rows.Scan(&loadUUID, &lastError)
-		if err != nil {
-			logger.WithError(err).Error("Got error fetching tsv row")
-			return
-		}
+	_, err = tx.Query(`
+		DELETE FROM last_load USING ll_stage
+		WHERE last_load.tablename = ll_stage.tablename`)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Query(`
+		INSERT INTO last_load
+		SELECT * FROM ll_stage`)
+	if err != nil {
+		return err
 	}
 
-	_, err = tx.Query(`
-		INSERT INTO last_load (tablename, last_loaded)
-		SELECT DISTINCT tablename, $1 FROM tsv WHERE manifest_uuid = $2
-		`, manifestUUID, doneTime)
-	if err != nil {
-		return err
-	}
-	_, err = tx.Query(`
-		WITH outdated AS (SELECT )
-		DELETE FROM last_load WHERE last_loaded < (SELECT max(last_loaded) FROM last_loaded WHERE tablename=)
-		`, manifestUUID, doneTime)
-	if err != nil {
-		return err
-	}
+	b.lastLoaded.UpdateLastLoad(tableName, doneTime)
 
 	return err
 }
@@ -466,7 +486,11 @@ func (b *postgresBackend) fetchFailedLoad() (*LoadManifest, error) {
 			logger.WithField("loadUUID", loadUUID).
 				WithField("lastError", lastError).
 				Warning("failed load was discovered as having succeeded, marking as done")
-			innerErr = b.loadDoneHelper(tx, loadUUID)
+			tableName, innerErr := b.getTableNameFromUUID(tx, loadUUID)
+			if innerErr != nil {
+				return fmt.Errorf("retrieving table name: %s", innerErr)
+			}
+			innerErr = b.loadDoneHelper(tx, loadUUID, tableName)
 			if innerErr != nil {
 				return fmt.Errorf("load done helper: %s", innerErr)
 			}
@@ -938,14 +962,20 @@ func (b *postgresBackend) ListDistinctTables() ([]string, error) {
 	return distinctTables, nil
 }
 
+func (b *postgresBackend) GetLastLoadManager() LastLoadManager {
+	return b.lastLoaded
+}
+
+func (m *lastLoadedManager) UpdateLastLoad(table string, llTime time.Time) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	m.lastLoaded[table] = llTime
+}
+
 func (m *lastLoadedManager) GetLastLoads() map[string]time.Time {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
-	//return b.lastLoaded.
-	//if time.Since(b.lastLoadedFetched) > lastLoadRefreshInterval {
-	//	logger.Info("Fetching Last")
-	//	}
-
-	return nil
+	return m.lastLoaded
 }
