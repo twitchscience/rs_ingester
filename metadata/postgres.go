@@ -370,7 +370,7 @@ func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUUID string, tableN
 
 	// update last_load time for the table in ingesterdb
 	doneTime := time.Now().In(time.UTC)
-	logger.Info(tableName)
+
 	_, err = tx.Query(`
 		SELECT $1::varchar AS tablename, $2::timestamp AS last_loaded
 		INTO TEMP TABLE ll_stage
@@ -392,7 +392,6 @@ func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUUID string, tableN
 	}
 
 	b.lastLoaded.UpdateLastLoad(tableName, doneTime)
-	logger.Info("Done updating")
 
 	return err
 }
