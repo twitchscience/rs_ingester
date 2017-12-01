@@ -1,6 +1,0 @@
-{
-    "redshift": {
-        "physicalSchema": "logs",
-        "url": "postgres://integration:xzMnylqbI6uKmGMsyjaTZlzh6WLICfi6@r.integration-jackgao.sci.justin.tv:5439/product"
-    }
-}
