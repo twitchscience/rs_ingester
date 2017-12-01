@@ -11,8 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/cloud/logging"
-
 	_ "github.com/lib/pq" // To register "postgres" with database/sql
 	"github.com/pborman/uuid"
 	"github.com/twitchscience/aws_utils/logger"
@@ -372,7 +370,7 @@ func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUUID string, tableN
 
 	// update last_load time for the table in ingesterdb
 	doneTime := time.Now().In(time.UTC)
-	logging.Info(tableName)
+	logger.Info(tableName)
 	_, err = tx.Query(`
 		SELECT '$1'::varchar AS tablename, '$2'::timestamp AS last_loaded
 		INTO TEMP TABLE ll_stage
