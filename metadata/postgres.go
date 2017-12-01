@@ -56,7 +56,6 @@ var (
 	errorNoTsvs             = errors.New("No tsvs were found with that manifest id")
 	errorNoLoads            = errors.New("Found no loads to do")
 	tableToLoadSearchSize   = 50
-	lastLoadRefreshInterval = time.Minute * 5
 	maxLoadRetryCount       int
 	dbRetryCount            int
 	noWorkDelay             time.Duration
@@ -259,8 +258,8 @@ func (b *postgresBackend) checkOrphanedLoads() error {
 			case scoop_protocol.LoadComplete:
 				// If completed succesfully, delete tsv rows
 				logger.WithField("orphanUUID", orphanUUID).Info("Orphaned load is complete, marking done")
-				orphanTableName, err := b.getTableNameFromUUID(tx, orphanUUID)
-				if err != nil {
+				orphanTableName, innerErr := b.getTableNameFromUUID(tx, orphanUUID)
+				if innerErr != nil {
 					logger.WithField("orphanUUID", orphanUUID).WithError(err).Error(
 						"Could not retrieve successful orphan load's table name")
 					return fmt.Errorf("could not retrieve succesful orphan load's name")
