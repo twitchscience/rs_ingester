@@ -258,9 +258,9 @@ func (b *postgresBackend) checkOrphanedLoads() error {
 			case scoop_protocol.LoadComplete:
 				// If completed succesfully, delete tsv rows
 				logger.WithField("orphanUUID", orphanUUID).Info("Orphaned load is complete, marking done")
-				orphanTableName, innerErr := b.getTableNameFromUUID(tx, orphanUUID)
-				if innerErr != nil {
-					logger.WithField("orphanUUID", orphanUUID).WithError(err).Error(
+				orphanTableName, tableErr := b.getTableNameFromUUID(tx, orphanUUID)
+				if tableErr != nil {
+					logger.WithField("orphanUUID", orphanUUID).WithError(tableErr).Error(
 						"Could not retrieve successful orphan load's table name")
 					return fmt.Errorf("could not retrieve succesful orphan load's name")
 				}
