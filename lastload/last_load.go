@@ -21,15 +21,21 @@ func NewLastLoadHandler(llManager metadata.LastLoadManager) *Handler {
 	return &Handler{llManager}
 }
 
-// GetLastLoad is the handler
+// GetLastLoad is the handler for last load requests
 func (h *Handler) GetLastLoad(c web.C, w http.ResponseWriter, r *http.Request) {
-
 	lastload := h.llManager.GetLastLoads()
-	js, err := json.Marshal(lastload)
+
+	llEpoch := map[string]int64{}
+	for table, time := range lastload {
+		llEpoch[table] = time.Unix()
+	}
+
+	js, err := json.Marshal(llEpoch)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, err = w.Write(js)
