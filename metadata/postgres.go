@@ -371,20 +371,20 @@ func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUUID string, tableN
 	// update last_load time for the table in ingesterdb
 	doneTime := time.Now().In(time.UTC)
 
-	_, err = tx.Query(`
+	_, err = tx.Exec(`
 		SELECT $1::varchar AS tablename, $2::timestamp AS last_loaded
 		INTO TEMP TABLE ll_stage
 		`, tableName, doneTime)
 	if err != nil {
 		return err
 	}
-	_, err = tx.Query(`
+	_, err = tx.Exec(`
 		DELETE FROM last_load USING ll_stage
 		WHERE last_load.tablename = ll_stage.tablename`)
 	if err != nil {
 		return err
 	}
-	_, err = tx.Query(`
+	_, err = tx.Exec(`
 		INSERT INTO last_load
 		SELECT * FROM ll_stage`)
 	if err != nil {
