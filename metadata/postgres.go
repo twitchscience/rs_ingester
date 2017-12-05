@@ -372,21 +372,14 @@ func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUUID string, tableN
 	doneTime := time.Now().In(time.UTC)
 
 	_, err = tx.Exec(`
-		SELECT $1::varchar AS tablename, $2::timestamp AS last_loaded
-		INTO TEMP TABLE ll_stage
-		`, tableName, doneTime)
+		DELETE FROM last_load
+		WHERE tablename = $1`, tableName)
 	if err != nil {
 		return err
 	}
 	_, err = tx.Exec(`
-		DELETE FROM last_load USING ll_stage
-		WHERE last_load.tablename = ll_stage.tablename`)
-	if err != nil {
-		return err
-	}
-	_, err = tx.Exec(`
-		INSERT INTO last_load
-		SELECT * FROM ll_stage`)
+		INSERT INTO last_load (tablename, last_loaded)
+		VALUES ($1, $2)`, tableName, doneTime)
 	if err != nil {
 		return err
 	}
