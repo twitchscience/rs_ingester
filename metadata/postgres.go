@@ -224,7 +224,11 @@ func (b *postgresBackend) getTableNameFromUUID(tx *sql.Tx, uuid string) (string,
 }
 
 func (b *postgresBackend) checkOrphanedLoads() error {
-	rows, err := b.db.Query(`SELECT uuid FROM manifest WHERE retry_ts IS NULL`)
+	rows, err := b.db.Query(`
+		SELECT DISTINCT m.uuid, t.tablename
+		FROM manifest m JOIN tsv t
+			ON m.uuid = t.manifest_uuid
+		WHERE m.retry_ts IS NULL`)
 	if err != nil {
 		return err
 	}
@@ -236,17 +240,18 @@ func (b *postgresBackend) checkOrphanedLoads() error {
 		}
 	}()
 
-	orphanUUIDs := []string{}
+	orphans := map[string]string{}
 	for rows.Next() {
 		var uuid string
-		err = rows.Scan(&uuid)
+		var tablename string
+		err = rows.Scan(&uuid, &tablename)
 		if err != nil {
 			return fmt.Errorf("querying for orphaned loads: %v", err)
 		}
-		orphanUUIDs = append(orphanUUIDs, uuid)
+		orphans[uuid] = tablename
 	}
 
-	for _, orphanUUID := range orphanUUIDs {
+	for orphanUUID, tablename := range orphans {
 		loadStatus, err := b.loadChecker.CheckLoad(orphanUUID)
 		if err != nil {
 			return fmt.Errorf("checking orphaned load status: %s", err)
@@ -258,13 +263,7 @@ func (b *postgresBackend) checkOrphanedLoads() error {
 			case scoop_protocol.LoadComplete:
 				// If completed succesfully, delete tsv rows
 				logger.WithField("orphanUUID", orphanUUID).Info("Orphaned load is complete, marking done")
-				orphanTableName, tableErr := b.getTableNameFromUUID(tx, orphanUUID)
-				if tableErr != nil {
-					logger.WithField("orphanUUID", orphanUUID).WithError(tableErr).Error(
-						"Could not retrieve successful orphan load's table name")
-					return fmt.Errorf("could not retrieve succesful orphan load's name")
-				}
-				innerErr = b.loadDoneHelper(tx, orphanUUID, orphanTableName, time.Now().In(time.UTC))
+				innerErr = b.loadDoneHelper(tx, orphanUUID, tablename, time.Now().In(time.UTC))
 
 			case scoop_protocol.LoadNotFound, scoop_protocol.LoadFailed:
 				// If load failed, mark for retry
@@ -383,9 +382,6 @@ func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUUID string, tableN
 	_, err = tx.Exec(`
 		INSERT INTO last_load (tablename, last_loaded)
 		VALUES ($1, $2)`, tableName, doneTime)
-	if err != nil {
-		return err
-	}
 
 	return err
 }
@@ -525,18 +521,18 @@ func (b *postgresBackend) fetchFailedLoad() (*LoadManifest, error) {
 
 func failedLoadMetadata(tx *sql.Tx) (loadUUID string, lastError string, err error) {
 	now := time.Now().In(time.UTC)
-	rows, err := tx.Query(`UPDATE manifest
-			       SET retry_ts = null,
-			           retry_count = retry_count + 1
-                               WHERE uuid IN (
-                                 SELECT uuid
-                                 FROM manifest
-                                 WHERE retry_ts IS NOT NULL AND retry_ts < $1 AND retry_count < $2
-                                 ORDER BY retry_ts ASC
-                                 LIMIT 1
-                               )
-                               RETURNING uuid, last_error
-                              `, now, maxLoadRetryCount)
+	rows, err := tx.Query(`
+		UPDATE manifest
+		SET retry_ts = null, retry_count = retry_count + 1
+		WHERE uuid IN (
+			SELECT uuid
+			FROM manifest
+			WHERE retry_ts IS NOT NULL AND retry_ts < $1 AND retry_count < $2
+			ORDER BY retry_ts ASC
+			LIMIT 1
+		)
+		RETURNING uuid, last_error
+		`, now, maxLoadRetryCount)
 
 	if err != nil {
 		logger.WithError(err).Error("Error querying for failed loads")
