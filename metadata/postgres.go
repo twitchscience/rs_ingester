@@ -36,7 +36,7 @@ type loadableTable struct {
 	forceLoadID *int
 }
 
-type lastLoadedManager struct {
+type lastLoadManager struct {
 	lastLoaded map[string]time.Time
 	lock       sync.RWMutex
 }
@@ -49,7 +49,7 @@ type postgresBackend struct {
 	loadReady     chan *LoadManifest
 	gracefulClose chan struct{}
 	versions      versions.Getter
-	lastLoaded    LastLoadManager
+	lastLoaded    *lastLoadManager
 }
 
 var (
@@ -135,7 +135,7 @@ func NewPostgresLoader(cfg *PGConfig, lChecker loadChecker, versions versions.Ge
 		return nil, fmt.Errorf("pulling table last loaded times: %s", err)
 	}
 	logger.Info("Done Pulling table last loaded times from DB")
-	llm := lastLoadedManager{}
+	llm := lastLoadManager{}
 	llm.lastLoaded = ll
 	b.lastLoaded = &llm
 
@@ -264,7 +264,7 @@ func (b *postgresBackend) checkOrphanedLoads() error {
 						"Could not retrieve successful orphan load's table name")
 					return fmt.Errorf("could not retrieve succesful orphan load's name")
 				}
-				innerErr = b.loadDoneHelper(tx, orphanUUID, orphanTableName)
+				innerErr = b.loadDoneHelper(tx, orphanUUID, orphanTableName, time.Now().In(time.UTC))
 
 			case scoop_protocol.LoadNotFound, scoop_protocol.LoadFailed:
 				// If load failed, mark for retry
@@ -302,13 +302,18 @@ func (b *postgresBackend) LoadReady() chan *LoadManifest {
 }
 
 func (b *postgresBackend) LoadDone(manifestUUID string, tableName string) {
+	doneTime := time.Now().In(time.UTC)
 	err := retryInTransaction(dbRetryCount, b.db, func(tx *sql.Tx) error {
-		return b.loadDoneHelper(tx, manifestUUID, tableName)
+		return b.loadDoneHelper(tx, manifestUUID, tableName, doneTime)
 	})
 	if err != nil {
 		logger.WithError(err).WithField("manifestUUID", manifestUUID).
 			Error("Error marking load as done and used all retries; final error attached")
+		return
 	}
+
+	// DB is updated, now update in-memory last load object
+	b.updateLastLoad(tableName, doneTime)
 }
 
 func (b *postgresBackend) LoadError(manifestUUID string, loadError string) {
@@ -357,7 +362,7 @@ func (b *postgresBackend) Close() {
 }
 
 // Non-committing load done helper function
-func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUUID string, tableName string) error {
+func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUUID string, tableName string, doneTime time.Time) error {
 	_, err := tx.Exec("DELETE FROM tsv WHERE manifest_uuid = $1", manifestUUID)
 	if err != nil {
 		return err
@@ -369,8 +374,6 @@ func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUUID string, tableN
 	}
 
 	// update last_load time for the table in ingesterdb
-	doneTime := time.Now().In(time.UTC)
-
 	_, err = tx.Exec(`
 		DELETE FROM last_load
 		WHERE tablename = $1`, tableName)
@@ -384,9 +387,14 @@ func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUUID string, tableN
 		return err
 	}
 
-	b.lastLoaded.UpdateLastLoad(tableName, doneTime)
-
 	return err
+}
+
+func (b *postgresBackend) updateLastLoad(table string, llTime time.Time) {
+	b.lastLoaded.lock.Lock()
+	defer b.lastLoaded.lock.Unlock()
+
+	b.lastLoaded.lastLoaded[table] = llTime
 }
 
 func (b *postgresBackend) loadErrorHelper(tx *sql.Tx, manifestUUID, loadError string) error {
@@ -482,10 +490,12 @@ func (b *postgresBackend) fetchFailedLoad() (*LoadManifest, error) {
 			if innerErr != nil {
 				return fmt.Errorf("retrieving table name: %s", innerErr)
 			}
-			innerErr = b.loadDoneHelper(tx, loadUUID, tableName)
+			doneTime := time.Now().In(time.UTC)
+			innerErr = b.loadDoneHelper(tx, loadUUID, tableName, doneTime)
 			if innerErr != nil {
 				return fmt.Errorf("load done helper: %s", innerErr)
 			}
+			b.updateLastLoad(tableName, doneTime)
 			return nil
 		})
 		if loadUUID == "" { // no more failed loads
@@ -954,20 +964,10 @@ func (b *postgresBackend) ListDistinctTables() ([]string, error) {
 	return distinctTables, nil
 }
 
-func (b *postgresBackend) GetLastLoadManager() LastLoadManager {
-	return b.lastLoaded
-}
+// GetLastLoad returns all known last load times for all tables
+func (b *postgresBackend) GetLastLoads() map[string]time.Time {
+	b.lastLoaded.lock.RLock()
+	defer b.lastLoaded.lock.RUnlock()
 
-func (m *lastLoadedManager) UpdateLastLoad(table string, llTime time.Time) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-
-	m.lastLoaded[table] = llTime
-}
-
-func (m *lastLoadedManager) GetLastLoads() map[string]time.Time {
-	m.lock.RLock()
-	defer m.lock.RUnlock()
-
-	return m.lastLoaded
+	return b.lastLoaded.lastLoaded
 }

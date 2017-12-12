@@ -33,7 +33,7 @@ type Backend interface {
 	LoadReady() chan *LoadManifest
 	LoadError(manifestUUID, loadError string)
 	LoadDone(manifestUUID string, tableName string)
-	GetLastLoadManager() LastLoadManager
+	GetLastLoads() map[string]time.Time
 }
 
 // Storer specifies recording loads in the db
@@ -41,12 +41,6 @@ type Storer interface {
 	InsertLoad(load *Load) error
 	ListDistinctTables() ([]string, error)
 	Close()
-}
-
-// LastLoadManager tracks and updates the last time a table was loaded
-type LastLoadManager interface {
-	GetLastLoads() map[string]time.Time
-	UpdateLastLoad(table string, llTime time.Time)
 }
 
 // EventStats defines a set of statistics recorded for a particular event.

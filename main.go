@@ -36,7 +36,6 @@ import (
 
 	"github.com/twitchscience/rs_ingester/backend"
 	"github.com/twitchscience/rs_ingester/healthcheck"
-	"github.com/twitchscience/rs_ingester/lastload"
 	"github.com/twitchscience/rs_ingester/loadclient"
 	"github.com/twitchscience/rs_ingester/metadata"
 	"github.com/twitchscience/rs_ingester/reporter"
@@ -231,12 +230,9 @@ func main() {
 	serveMux := http.NewServeMux()
 	serveMux.Handle("/health", healthcheck.NewHealthRouter())
 
-	controlBackend := control.NewControlBackend(metaReader, tableVersions, versionIncrement)
+	controlBackend := control.NewControlBackend(metaReader, metaBackend, tableVersions, versionIncrement)
 	controlHandler := control.NewControlHandler(controlBackend, stats)
 	serveMux.Handle("/control/", control.NewControlRouter(controlHandler))
-
-	llHandler := lastload.NewLastLoadHandler(metaBackend.GetLastLoadManager())
-	serveMux.Handle("/last_load", lastload.NewLastLoadRouter(llHandler))
 
 	logger.Go(func() {
 		logger.WithError(http.ListenAndServe(net.JoinHostPort("localhost", "8080"), serveMux)).
