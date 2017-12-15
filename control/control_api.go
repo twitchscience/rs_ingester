@@ -22,6 +22,7 @@ func NewControlRouter(cHandler *Handler) http.Handler {
 	control.Post("/control/force_load", cHandler.ForceLoad)
 	control.Get("/control/table_exists/:id", cHandler.TableExists)
 	control.Post("/control/increment_version/:id", cHandler.IncrementVersion)
+	control.Get("/control/last_load", cHandler.LastLoad)
 
 	return control
 }

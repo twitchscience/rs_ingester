@@ -92,7 +92,7 @@ func (i *loadWorker) Work(stats monitoring.SafeStatter) {
 			continue
 		}
 		logfields.Info("Loaded manifest into table")
-		i.MetadataBackend.LoadDone(load.UUID)
+		i.MetadataBackend.LoadDone(load.UUID, load.TableName)
 
 		stats.SafeInc("manifest_load.count", 1, 1.0)
 		statsdPattern := "tsv_files.%s.loaded"
@@ -230,9 +230,8 @@ func main() {
 	serveMux := http.NewServeMux()
 	serveMux.Handle("/health", healthcheck.NewHealthRouter())
 
-	controlBackend := control.NewControlBackend(metaReader, tableVersions, versionIncrement)
+	controlBackend := control.NewControlBackend(metaReader, metaBackend, tableVersions, versionIncrement)
 	controlHandler := control.NewControlHandler(controlBackend, stats)
-
 	serveMux.Handle("/control/", control.NewControlRouter(controlHandler))
 
 	logger.Go(func() {

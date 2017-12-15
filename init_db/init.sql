@@ -26,3 +26,8 @@ CREATE TABLE IF NOT EXISTS force_load (
     requester       VARCHAR,                        -- username who requested the force load
     started         TIMESTAMP                       -- time when the force load was started (null if unstarted)
 );
+
+CREATE TABLE IF NOT EXISTS last_load (
+    tablename VARCHAR PRIMARY KEY,  -- the logs table we are tracking last loaded time on
+    last_loaded TIMESTAMP           -- the last loaded time for that table in UTC
+);

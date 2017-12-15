@@ -2,6 +2,7 @@ package control
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/twitchscience/rs_ingester/metadata"
 	"github.com/twitchscience/rs_ingester/migrator"
@@ -11,14 +12,15 @@ import (
 // Backend is the backend for control, which operates on the ingester
 type Backend struct {
 	metaReader       metadata.Reader
+	metaBackend      metadata.Backend
 	versions         versions.Getter
 	versionIncrement chan migrator.VersionIncrement
 }
 
 // NewControlBackend instantiates the control backend with a db connection
-func NewControlBackend(metaReader metadata.Reader, tableVersions versions.Getter,
+func NewControlBackend(metaReader metadata.Reader, metaBackend metadata.Backend, tableVersions versions.Getter,
 	versionIncrement chan migrator.VersionIncrement) *Backend {
-	return &Backend{metaReader, tableVersions, versionIncrement}
+	return &Backend{metaReader, metaBackend, tableVersions, versionIncrement}
 }
 
 // ForceLoad makes the given table the highest priority to load next
@@ -52,4 +54,9 @@ func (cBackend *Backend) IncrementVersion(tableName string) error {
 		return fmt.Errorf("error setting table '%s' to version '%d': %v", tableName, version, err)
 	}
 	return nil
+}
+
+// LastLoads returns the last known load times for each table
+func (cBackend *Backend) LastLoads() map[string]time.Time {
+	return cBackend.metaBackend.GetLastLoads()
 }

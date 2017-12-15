@@ -32,7 +32,8 @@ type Backend interface {
 	Reader
 	LoadReady() chan *LoadManifest
 	LoadError(manifestUUID, loadError string)
-	LoadDone(manifestUUID string)
+	LoadDone(manifestUUID string, tableName string)
+	GetLastLoads() map[string]time.Time
 }
 
 // Storer specifies recording loads in the db
