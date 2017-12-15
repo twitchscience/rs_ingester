@@ -102,10 +102,10 @@ func (ch *Handler) IncrementVersion(c web.C, w http.ResponseWriter, r *http.Requ
 
 // LastLoad returns a JSON map of known last load times for each table
 func (ch *Handler) LastLoad(c web.C, w http.ResponseWriter, r *http.Request) {
-	lastload := ch.cb.LastLoad()
+	lastloads := ch.cb.LastLoads()
 
 	llEpoch := map[string]int64{}
-	for table, time := range lastload {
+	for table, time := range lastloads {
 		llEpoch[table] = time.Unix()
 	}
 

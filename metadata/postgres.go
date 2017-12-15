@@ -36,20 +36,16 @@ type loadableTable struct {
 	forceLoadID *int
 }
 
-type lastLoadManager struct {
-	lastLoaded map[string]time.Time
-	lock       sync.RWMutex
-}
-
 type postgresBackend struct {
-	db            *sql.DB
-	cfg           *PGConfig
-	loadChecker   loadChecker
-	wait          chan struct{}
-	loadReady     chan *LoadManifest
-	gracefulClose chan struct{}
-	versions      versions.Getter
-	lastLoaded    *lastLoadManager
+	db             *sql.DB
+	cfg            *PGConfig
+	loadChecker    loadChecker
+	wait           chan struct{}
+	loadReady      chan *LoadManifest
+	gracefulClose  chan struct{}
+	versions       versions.Getter
+	lastLoaded     map[string]time.Time
+	lastLoadedLock sync.RWMutex
 }
 
 var (
@@ -135,9 +131,7 @@ func NewPostgresLoader(cfg *PGConfig, lChecker loadChecker, versions versions.Ge
 		return nil, fmt.Errorf("pulling table last loaded times: %s", err)
 	}
 	logger.Info("Done Pulling table last loaded times from DB")
-	llm := lastLoadManager{}
-	llm.lastLoaded = ll
-	b.lastLoaded = &llm
+	b.lastLoaded = ll
 
 	logger.Go(b.loadReadyWorker)
 
@@ -387,10 +381,10 @@ func (b *postgresBackend) loadDoneHelper(tx *sql.Tx, manifestUUID string, tableN
 }
 
 func (b *postgresBackend) updateLastLoad(table string, llTime time.Time) {
-	b.lastLoaded.lock.Lock()
-	defer b.lastLoaded.lock.Unlock()
+	b.lastLoadedLock.Lock()
+	defer b.lastLoadedLock.Unlock()
 
-	b.lastLoaded.lastLoaded[table] = llTime
+	b.lastLoaded[table] = llTime
 }
 
 func (b *postgresBackend) loadErrorHelper(tx *sql.Tx, manifestUUID, loadError string) error {
@@ -962,8 +956,8 @@ func (b *postgresBackend) ListDistinctTables() ([]string, error) {
 
 // GetLastLoad returns all known last load times for all tables
 func (b *postgresBackend) GetLastLoads() map[string]time.Time {
-	b.lastLoaded.lock.RLock()
-	defer b.lastLoaded.lock.RUnlock()
+	b.lastLoadedLock.RLock()
+	defer b.lastLoadedLock.RUnlock()
 
-	return b.lastLoaded.lastLoaded
+	return b.lastLoaded
 }

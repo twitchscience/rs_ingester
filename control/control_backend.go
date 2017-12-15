@@ -56,8 +56,7 @@ func (cBackend *Backend) IncrementVersion(tableName string) error {
 	return nil
 }
 
-// LastLoad returns the last known load times for each table
-func (cBackend *Backend) LastLoad() map[string]time.Time {
-	llTimes := cBackend.metaBackend.GetLastLoads()
-	return llTimes
+// LastLoads returns the last known load times for each table
+func (cBackend *Backend) LastLoads() map[string]time.Time {
+	return cBackend.metaBackend.GetLastLoads()
 }
