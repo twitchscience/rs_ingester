@@ -1,3 +1,5 @@
+***NOTE: This project is no longer being updated publicly.***
+
 **Table of Contents**
 - [Ingester](#ingester)
   - [metadatastorer](#metadatastorer)
